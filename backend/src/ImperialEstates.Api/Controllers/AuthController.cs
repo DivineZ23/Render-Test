@@ -21,9 +21,6 @@ public sealed class AuthController(IDiscordOAuthService discord, AuthService aut
         if (code is not null || state is not null)
             return CompleteDiscordCallbackAsync(code, state, ct);
 
-        if (!environment.IsDevelopment() && TryGetDiscordCallbackUri(out var callbackUri) && !string.Equals(Request.Host.Value, callbackUri.Authority, StringComparison.OrdinalIgnoreCase))
-            return Task.FromResult<IActionResult>(Redirect(callbackUri.GetLeftPart(UriPartial.Authority) + Request.PathBase + Request.Path));
-
         var generatedState = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
         Response.Cookies.Append("discord_oauth_state", generatedState, CookieOptions(TimeSpan.FromMinutes(10), sameSite: SameSiteMode.Lax));
         return Task.FromResult<IActionResult>(Redirect(discord.BuildAuthorizationUrl(generatedState)));
