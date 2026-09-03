@@ -12,7 +12,7 @@ namespace ImperialEstates.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/auth")]
-public sealed class AuthController(IDiscordOAuthService discord, AuthService auth, UserManagementService users, IConfiguration configuration) : ControllerBase
+public sealed class AuthController(IDiscordOAuthService discord, AuthService auth, UserManagementService users, IConfiguration configuration, IWebHostEnvironment environment) : ControllerBase
 {
     [HttpGet("discord")]
     [EnableRateLimiting("auth")]
@@ -20,6 +20,9 @@ public sealed class AuthController(IDiscordOAuthService discord, AuthService aut
     {
         if (code is not null || state is not null)
             return CompleteDiscordCallbackAsync(code, state, ct);
+
+        if (!environment.IsDevelopment() && TryGetDiscordCallbackUri(out var callbackUri) && !string.Equals(Request.Host.Value, callbackUri.Authority, StringComparison.OrdinalIgnoreCase))
+            return Task.FromResult<IActionResult>(Redirect(callbackUri.GetLeftPart(UriPartial.Authority) + Request.PathBase + Request.Path));
 
         var generatedState = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
         Response.Cookies.Append("discord_oauth_state", generatedState, CookieOptions(TimeSpan.FromMinutes(10), sameSite: SameSiteMode.Lax));
@@ -41,7 +44,9 @@ public sealed class AuthController(IDiscordOAuthService discord, AuthService aut
         Response.Cookies.Delete("discord_oauth_state");
         var result = await auth.SignInAsync(await discord.ExchangeCodeAsync(code, ct), ct);
         Response.Cookies.Append("imperial_auth", result.AccessToken, CookieOptions(result.ExpiresAt - DateTime.UtcNow, SameSiteMode.Lax));
-        var frontend = configuration["App:FrontendUrl"]?.TrimEnd('/') ?? "http://localhost:4200";
+        var frontend = !environment.IsDevelopment() && TryGetDiscordCallbackUri(out var callbackUri)
+            ? callbackUri.GetLeftPart(UriPartial.Authority)
+            : configuration["App:FrontendUrl"]?.TrimEnd('/') ?? "http://localhost:4200";
         var path = result.User.ApprovalStatus switch
         {
             ApprovalStatus.Pending => "/pending-approval",
@@ -70,7 +75,10 @@ public sealed class AuthController(IDiscordOAuthService discord, AuthService aut
 
     private CookieOptions CookieOptions(TimeSpan lifetime, SameSiteMode sameSite) => new()
     {
-        HttpOnly = true, Secure = !HttpContext.RequestServices.GetRequiredService<IWebHostEnvironment>().IsDevelopment(),
+        HttpOnly = true, Secure = !environment.IsDevelopment(),
         SameSite = sameSite, IsEssential = true, Expires = DateTimeOffset.UtcNow.Add(lifetime), Path = "/"
     };
+
+    private bool TryGetDiscordCallbackUri(out Uri callbackUri) =>
+        Uri.TryCreate(configuration["Discord:RedirectUri"], UriKind.Absolute, out callbackUri!);
 }
