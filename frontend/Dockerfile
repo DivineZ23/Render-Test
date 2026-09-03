@@ -7,6 +7,7 @@ COPY frontend/ .
 RUN pnpm build
 
 FROM nginx:1.27-alpine
+ENV BACKEND_URL=https://render-test-gav0.onrender.com
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist/frontend/browser /usr/share/nginx/html
 EXPOSE 80
