@@ -1,0 +1,49 @@
+services:
+  - type: pserv
+    name: imperial-estates-api
+    runtime: docker
+    plan: starter
+    region: singapore
+    dockerfilePath: ./backend/Dockerfile
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://+:8080
+      - key: PORT
+        value: 8080
+      - key: MONGODB_CONNECTION_STRING
+        sync: false
+      - key: MONGODB_DATABASE
+        value: imperialEstates
+      - key: JWT_SIGNING_KEY
+        sync: false
+      - key: JWT_ISSUER
+        value: ImperialEstates
+      - key: JWT_AUDIENCE
+        value: ImperialEstates.Web
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_REDIRECT_URI
+        sync: false
+      - key: OWNER_DISCORD_USER_ID
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: SEED_DATA
+        value: false
+
+  - type: web
+    name: imperial-estates-web
+    runtime: docker
+    plan: starter
+    region: singapore
+    dockerfilePath: ./frontend/Dockerfile
+    envVars:
+      - key: BACKEND_HOSTPORT
+        fromService:
+          type: pserv
+          name: imperial-estates-api
+          property: hostport
