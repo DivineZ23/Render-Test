@@ -16,17 +16,26 @@ public sealed class AuthController(IDiscordOAuthService discord, AuthService aut
 {
     [HttpGet("discord")]
     [EnableRateLimiting("auth")]
-    public IActionResult Discord()
+    public Task<IActionResult> Discord([FromQuery] string? code, [FromQuery] string? state, CancellationToken ct)
     {
-        var state = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
-        Response.Cookies.Append("discord_oauth_state", state, CookieOptions(TimeSpan.FromMinutes(10), sameSite: SameSiteMode.Lax));
-        return Redirect(discord.BuildAuthorizationUrl(state));
+        if (code is not null || state is not null)
+            return CompleteDiscordCallbackAsync(code, state, ct);
+
+        var generatedState = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        Response.Cookies.Append("discord_oauth_state", generatedState, CookieOptions(TimeSpan.FromMinutes(10), sameSite: SameSiteMode.Lax));
+        return Task.FromResult<IActionResult>(Redirect(discord.BuildAuthorizationUrl(generatedState)));
     }
 
     [HttpGet("discord/callback")]
     [EnableRateLimiting("auth")]
-    public async Task<IActionResult> Callback([FromQuery] string code, [FromQuery] string state, CancellationToken ct)
+    public Task<IActionResult> Callback([FromQuery] string? code, [FromQuery] string? state, CancellationToken ct) =>
+        CompleteDiscordCallbackAsync(code, state, ct);
+
+    private async Task<IActionResult> CompleteDiscordCallbackAsync(string? code, string? state, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(state))
+            return BadRequest(new { statusCode = 400, errorCode = "INVALID_OAUTH_CALLBACK", message = "The OAuth callback must include both code and state.", traceId = HttpContext.TraceIdentifier });
+
         if (!Request.Cookies.TryGetValue("discord_oauth_state", out var expected) || !CryptographicOperations.FixedTimeEquals(System.Text.Encoding.UTF8.GetBytes(state), System.Text.Encoding.UTF8.GetBytes(expected)))
             return BadRequest(new { statusCode = 400, errorCode = "INVALID_OAUTH_STATE", message = "The sign-in request could not be verified.", traceId = HttpContext.TraceIdentifier });
         Response.Cookies.Delete("discord_oauth_state");
