@@ -1,11 +1,24 @@
 using ImperialEstates.Domain.Entities;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 
 namespace ImperialEstates.Infrastructure.Persistence;
 
 public sealed class MongoContext
 {
+    static MongoContext()
+    {
+        if (!BsonClassMap.IsClassMapRegistered(typeof(CommissionRecord)))
+        {
+            BsonClassMap.RegisterClassMap<CommissionRecord>(classMap =>
+            {
+                classMap.AutoMap();
+                classMap.SetIgnoreExtraElements(true);
+            });
+        }
+    }
+
     public MongoContext(IOptions<MongoOptions> options)
     {
         Client = new MongoClient(options.Value.ConnectionString);
