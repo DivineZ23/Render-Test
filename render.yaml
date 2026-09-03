@@ -42,8 +42,5 @@ services:
     region: singapore
     dockerfilePath: ./frontend/Dockerfile
     envVars:
-      - key: BACKEND_HOSTPORT
-        fromService:
-          type: pserv
-          name: imperial-estates-api
-          property: hostport
+      - key: BACKEND_URL
+        value: https://render-test-gav0.onrender.com
