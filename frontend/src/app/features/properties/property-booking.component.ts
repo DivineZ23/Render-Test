@@ -9,7 +9,6 @@ import { propertyTypeLabel } from '../../core/constants/property-status.constant
 import { Property } from '../../core/models/property.models';
 import { AuthService } from '../../core/services/auth.service';
 import { PropertyService } from '../../core/services/property.service';
-import { depositAtLeastRentValidator } from '../../core/validators/financial.validators';
 
 @Component({
   selector: 'app-property-booking',
@@ -108,13 +107,9 @@ import { depositAtLeastRentValidator } from '../../core/validators/financial.val
             </label>
             <label class="field">
               <span>Booking amount</span>
-              <input
-                type="number"
-                [min]="form.controls.monthlyRent.value ?? 0"
-                formControlName="bookingAmount"
-              />
+              <input type="number" min="0" formControlName="bookingAmount" />
               @if (invalid('bookingAmount')) {
-                <small class="error">Booking amount must be at least equal to the rent.</small>
+                <small class="error">Enter a booking amount of 0 or more.</small>
               }
             </label>
           </div>
@@ -277,27 +272,24 @@ export class PropertyBookingComponent {
   readonly saving = signal(false);
   readonly receiptCopied = signal(false);
   readonly phonePlaceholder = PHONE_NUMBER_PLACEHOLDER;
-  readonly form = new FormGroup(
-    {
-      cid: new FormControl<number | null>(null, [Validators.required, Validators.min(1)]),
-      fullName: new FormControl('', {
-        nonNullable: true,
-        validators: [Validators.required, Validators.maxLength(160)],
-      }),
-      phoneNumber: new FormControl('', {
-        nonNullable: true,
-        validators: [Validators.required, Validators.pattern(PHONE_NUMBER_PATTERN)],
-      }),
-      discordId: new FormControl('', {
-        nonNullable: true,
-        validators: [Validators.required, Validators.pattern(/^\d+$/), Validators.maxLength(32)],
-      }),
-      monthlyRent: new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
-      bookingAmount: new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
-      notes: new FormControl('', { nonNullable: true, validators: [Validators.maxLength(1000)] }),
-    },
-    { validators: depositAtLeastRentValidator('monthlyRent', 'bookingAmount') },
-  );
+  readonly form = new FormGroup({
+    cid: new FormControl<number | null>(null, [Validators.required, Validators.min(1)]),
+    fullName: new FormControl('', {
+      nonNullable: true,
+      validators: [Validators.required, Validators.maxLength(160)],
+    }),
+    phoneNumber: new FormControl('', {
+      nonNullable: true,
+      validators: [Validators.required, Validators.pattern(PHONE_NUMBER_PATTERN)],
+    }),
+    discordId: new FormControl('', {
+      nonNullable: true,
+      validators: [Validators.required, Validators.pattern(/^\d+$/), Validators.maxLength(32)],
+    }),
+    monthlyRent: new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
+    bookingAmount: new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
+    notes: new FormControl('', { nonNullable: true, validators: [Validators.maxLength(1000)] }),
+  });
 
   constructor() {
     this.propertyService.details(this.route.snapshot.paramMap.get('id')!).subscribe({
@@ -344,8 +336,7 @@ export class PropertyBookingComponent {
     name: 'cid' | 'fullName' | 'phoneNumber' | 'discordId' | 'monthlyRent' | 'bookingAmount',
   ): boolean {
     const control = this.form.controls[name];
-    const amountMismatch = name === 'bookingAmount' && this.form.hasError('depositBelowRent');
-    return (control.invalid || amountMismatch) && control.touched;
+    return control.invalid && control.touched;
   }
 
   submit() {

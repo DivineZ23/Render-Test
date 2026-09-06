@@ -62,10 +62,6 @@ public sealed class CreatePropertyBookingRequestValidator : AbstractValidator<Cr
         RuleFor(x => x.DiscordId).NotEmpty().Matches(@"^\d+$").MaximumLength(32);
         RuleFor(x => x.MonthlyRent).NotNull().GreaterThanOrEqualTo(0);
         RuleFor(x => x.BookingAmount).NotNull().GreaterThanOrEqualTo(0);
-        RuleFor(x => x.BookingAmount)
-            .Must((request, amount) =>
-                !amount.HasValue || !request.MonthlyRent.HasValue || amount.Value >= request.MonthlyRent.Value)
-            .WithMessage("Booking amount must be at least equal to the monthly rent.");
         RuleFor(x => x.Notes).MaximumLength(1000);
     }
 }
