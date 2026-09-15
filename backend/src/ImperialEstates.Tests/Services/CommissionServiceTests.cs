@@ -4,6 +4,7 @@ using ImperialEstates.Application.Interfaces;
 using ImperialEstates.Application.Services;
 using ImperialEstates.Domain.Entities;
 using ImperialEstates.Domain.Enums;
+using ImperialEstates.Domain.Exceptions;
 
 namespace ImperialEstates.Tests.Services;
 
@@ -25,21 +26,37 @@ public sealed class CommissionServiceTests
         var result = CommissionService.Calculate(410_000, 10_000, 3);
 
         Assert.Equal(400_000, result.AuctionPremium);
-        Assert.Equal(100_000, result.AdditionalAgentPool);
-        Assert.Equal(60_000, result.WinningAgentClosingShare);
-        Assert.Equal(70_000, result.WinningAgentTotal);
-        Assert.Equal(40_000, result.ParticipationPool);
-        Assert.Equal(20_000, result.AmountPerOtherAgent);
+        Assert.Equal(80_000, result.AdditionalAgentPool);
+        Assert.Equal(48_000, result.WinningAgentClosingShare);
+        Assert.Equal(58_000, result.WinningAgentTotal);
+        Assert.Equal(32_000, result.ParticipationPool);
+        Assert.Equal(16_000, result.AmountPerOtherAgent);
+    }
+
+    [Theory]
+    [InlineData(50_000, 15_000)]
+    [InlineData(100_000, 30_000)]
+    [InlineData(250_000, 60_000)]
+    [InlineData(500_000, 90_000)]
+    [InlineData(1_000_000, 140_000)]
+    [InlineData(2_000_000, 240_000)]
+    [InlineData(2_100_000, 250_000)]
+    [InlineData(3_000_000, 250_000)]
+    public void Agent_pool_uses_the_agreed_marginal_rates_and_cap(int premium, int expectedPool)
+    {
+        var result = CommissionService.Calculate(premium, 0, 2);
+
+        Assert.Equal(expectedPool, result.AdditionalAgentPool);
     }
 
     [Fact]
-    public void Additional_pool_is_capped_at_two_hundred_thousand()
+    public void Additional_pool_is_capped_at_two_hundred_fifty_thousand()
     {
-        var result = CommissionService.Calculate(2_000_000, 0, 2);
+        var result = CommissionService.Calculate(3_000_000, 0, 2);
 
-        Assert.Equal(200_000, result.AdditionalAgentPool);
-        Assert.Equal(120_000, result.WinningAgentClosingShare);
-        Assert.Equal(80_000, result.AmountPerOtherAgent);
+        Assert.Equal(250_000, result.AdditionalAgentPool);
+        Assert.Equal(150_000, result.WinningAgentClosingShare);
+        Assert.Equal(100_000, result.AmountPerOtherAgent);
     }
 
     [Fact]
@@ -47,9 +64,23 @@ public sealed class CommissionServiceTests
     {
         var result = CommissionService.Calculate(110_000, 10_000, 1);
 
-        Assert.Equal(40_000, result.AdditionalAgentPool);
-        Assert.Equal(24_000, result.WinningAgentClosingShare);
+        Assert.Equal(30_000, result.AdditionalAgentPool);
+        Assert.Equal(18_000, result.WinningAgentClosingShare);
         Assert.Equal(0, result.ParticipationPool);
+    }
+
+    [Fact]
+    public void Multiple_winners_split_the_base_and_winner_pool_equally()
+    {
+        var result = CommissionService.Calculate(510_000, 10_000, 5, 2);
+
+        Assert.Equal(90_000, result.AdditionalAgentPool);
+        Assert.Equal(410_000, result.CompanyShare);
+        Assert.Equal(2, result.WinningAgentCount);
+        Assert.Equal(64_000, result.WinningAgentTotal);
+        Assert.Equal(32_000, result.AmountPerWinningAgent);
+        Assert.Equal(36_000, result.ParticipationPool);
+        Assert.Equal(12_000, result.AmountPerOtherAgent);
     }
 
     [Fact]
@@ -61,15 +92,61 @@ public sealed class CommissionServiceTests
         var fixture = new Fixture(winner, participant, manager);
 
         var records = await fixture.Service.CreateSettlementAsync(
-            new CreateAuctionSettlementRequest("Rockford 7", 110_000, 10_000, winner.Id, [participant.Id]),
+            new CreateAuctionSettlementRequest("Rockford 7", 110_000, 10_000, [winner.Id], [participant.Id]),
             manager.Id,
             default);
         var paid = await fixture.Service.SetPaidAsync(records[0].Id, true, manager.Id, default);
 
         Assert.Equal(2, records.Count);
-        Assert.Equal(34_000, records.Single(x => x.IsWinningAgent).CommissionAmount);
-        Assert.Equal(16_000, records.Single(x => !x.IsWinningAgent).CommissionAmount);
+        Assert.Equal(28_000, records.Single(x => x.IsWinningAgent).CommissionAmount);
+        Assert.Equal(12_000, records.Single(x => !x.IsWinningAgent).CommissionAmount);
         Assert.True(paid.IsPaid);
+    }
+
+    [Fact]
+    public async Task Manager_can_update_and_delete_an_unpaid_settlement()
+    {
+        var firstWinner = ActiveUser("winner-1", UserRole.Agent);
+        var secondWinner = ActiveUser("winner-2", UserRole.Agent);
+        var participant = ActiveUser("participant", UserRole.SeniorAgent);
+        var manager = ActiveUser("manager", UserRole.Manager);
+        var fixture = new Fixture(firstWinner, secondWinner, participant, manager);
+        var created = await fixture.Service.CreateSettlementAsync(
+            new CreateAuctionSettlementRequest("Rockford 7", 510_000, 10_000, [firstWinner.Id], [participant.Id]),
+            manager.Id,
+            default);
+
+        var updated = await fixture.Service.UpdateSettlementAsync(
+            created[0].SettlementId,
+            new CreateAuctionSettlementRequest("Rockford 8", 510_000, 10_000, [firstWinner.Id, secondWinner.Id], [participant.Id]),
+            manager.Id,
+            default);
+        await fixture.Service.DeleteSettlementAsync(created[0].SettlementId, manager.Id, default);
+        var overview = await fixture.Service.GetOverviewAsync(manager.Id, default);
+
+        Assert.Equal(3, updated.Count);
+        Assert.Equal(2, updated.Count(x => x.IsWinningAgent));
+        Assert.All(updated.Where(x => x.IsWinningAgent), record => Assert.Equal(32_000, record.CommissionAmount));
+        Assert.Equal(36_000, updated.Single(x => !x.IsWinningAgent).CommissionAmount);
+        Assert.Empty(overview.Records);
+    }
+
+    [Fact]
+    public async Task Paid_settlement_must_be_marked_unpaid_before_editing_or_deleting()
+    {
+        var winner = ActiveUser("winner", UserRole.Agent);
+        var manager = ActiveUser("manager", UserRole.Manager);
+        var fixture = new Fixture(winner, manager);
+        var records = await fixture.Service.CreateSettlementAsync(
+            new CreateAuctionSettlementRequest("Rockford 7", 110_000, 10_000, [winner.Id], []),
+            manager.Id,
+            default);
+        await fixture.Service.SetPaidAsync(records[0].Id, true, manager.Id, default);
+
+        var exception = await Assert.ThrowsAsync<DomainRuleException>(() =>
+            fixture.Service.DeleteSettlementAsync(records[0].SettlementId, manager.Id, default));
+
+        Assert.Equal("SETTLEMENT_HAS_PAID_PAYOUTS", exception.ErrorCode);
     }
 
     private static User ActiveUser(string id, UserRole role) => new()
@@ -106,9 +183,10 @@ public sealed class CommissionServiceTests
             }
             return Task.CompletedTask;
         }
-        public Task<IReadOnlyList<CommissionRecord>> GetAllAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<CommissionRecord>>(_values);
-        public Task<IReadOnlyList<CommissionRecord>> GetByAgentAsync(string id, CancellationToken ct) => Task.FromResult<IReadOnlyList<CommissionRecord>>(_values.Where(x => x.AgentUserId == id).ToList());
-        public Task<CommissionRecord?> GetByIdAsync(string id, CancellationToken ct) => Task.FromResult(_values.FirstOrDefault(x => x.Id == id));
+        public Task<IReadOnlyList<CommissionRecord>> GetAllAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<CommissionRecord>>(_values.Where(x => !x.IsDeleted).ToList());
+        public Task<IReadOnlyList<CommissionRecord>> GetByAgentAsync(string id, CancellationToken ct) => Task.FromResult<IReadOnlyList<CommissionRecord>>(_values.Where(x => !x.IsDeleted && x.AgentUserId == id).ToList());
+        public Task<IReadOnlyList<CommissionRecord>> GetBySettlementIdAsync(string id, CancellationToken ct) => Task.FromResult<IReadOnlyList<CommissionRecord>>(_values.Where(x => !x.IsDeleted && x.SettlementId == id).ToList());
+        public Task<CommissionRecord?> GetByIdAsync(string id, CancellationToken ct) => Task.FromResult(_values.FirstOrDefault(x => !x.IsDeleted && x.Id == id));
         public Task UpdateAsync(CommissionRecord value, CancellationToken ct) => Task.CompletedTask;
     }
 

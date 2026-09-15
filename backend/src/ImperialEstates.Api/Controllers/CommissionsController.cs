@@ -23,6 +23,20 @@ public sealed class CommissionsController(CommissionService service) : Controlle
     public Task<IReadOnlyList<CommissionRecordDto>> CreateSettlement(CreateAuctionSettlementRequest request, CancellationToken ct) =>
         service.CreateSettlementAsync(request, User.UserId(), ct);
 
+    [Authorize(Policy = "Manager"), HttpPut("settlements/{settlementId}")]
+    public Task<IReadOnlyList<CommissionRecordDto>> UpdateSettlement(
+        string settlementId,
+        CreateAuctionSettlementRequest request,
+        CancellationToken ct) =>
+        service.UpdateSettlementAsync(settlementId, request, User.UserId(), ct);
+
+    [Authorize(Policy = "Manager"), HttpDelete("settlements/{settlementId}")]
+    public async Task<IActionResult> DeleteSettlement(string settlementId, CancellationToken ct)
+    {
+        await service.DeleteSettlementAsync(settlementId, User.UserId(), ct);
+        return NoContent();
+    }
+
     [Authorize(Policy = "Manager"), HttpPatch("{id}/paid")]
     public Task<CommissionRecordDto> SetPaid(string id, SetCommissionPaidRequest request, CancellationToken ct) =>
         service.SetPaidAsync(id, request.IsPaid, User.UserId(), ct);

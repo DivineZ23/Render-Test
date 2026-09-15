@@ -73,6 +73,7 @@ public sealed class PreviewAuctionCommissionRequestValidator : AbstractValidator
         RuleFor(x => x.BasePrice).GreaterThanOrEqualTo(0);
         RuleFor(x => x.FinalAuctionPrice).GreaterThanOrEqualTo(x => x.BasePrice);
         RuleFor(x => x.TotalNumberOfAgents).GreaterThanOrEqualTo(1);
+        RuleFor(x => x.WinningAgentCount).GreaterThanOrEqualTo(1).LessThanOrEqualTo(x => x.TotalNumberOfAgents);
     }
 }
 
@@ -83,7 +84,9 @@ public sealed class CreateAuctionSettlementRequestValidator : AbstractValidator<
         RuleFor(x => x.AuctionReference).NotEmpty().MaximumLength(160);
         RuleFor(x => x.BasePrice).GreaterThanOrEqualTo(0);
         RuleFor(x => x.FinalAuctionPrice).GreaterThanOrEqualTo(x => x.BasePrice);
-        RuleFor(x => x.WinningAgentUserId).NotEmpty();
+        RuleFor(x => x.WinningAgentUserIds).NotNull().NotEmpty();
+        RuleForEach(x => x.WinningAgentUserIds).NotEmpty();
+        RuleFor(x => x.OtherAgentUserIds).NotNull();
         RuleFor(x => x.OtherAgentUserIds).NotNull();
     }
 }

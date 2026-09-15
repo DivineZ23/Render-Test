@@ -21,6 +21,10 @@ public sealed class CommissionRepository(MongoContext db) : ICommissionRepositor
         await db.Commissions.Find(x => !x.IsDeleted && x.SchemeVersion == CommissionRecord.CurrentSchemeVersion && x.AgentUserId == userId)
             .SortByDescending(x => x.CreatedAt).ToListAsync(ct);
 
+    public async Task<IReadOnlyList<CommissionRecord>> GetBySettlementIdAsync(string settlementId, CancellationToken ct) =>
+        await db.Commissions.Find(x => !x.IsDeleted && x.SchemeVersion == CommissionRecord.CurrentSchemeVersion && x.SettlementId == settlementId)
+            .SortBy(x => x.CreatedAt).ToListAsync(ct);
+
     public Task<CommissionRecord?> GetByIdAsync(string id, CancellationToken ct) =>
         db.Commissions.Find(x => x.Id == id && !x.IsDeleted && x.SchemeVersion == CommissionRecord.CurrentSchemeVersion).FirstOrDefaultAsync(ct)!;
 

@@ -156,11 +156,17 @@ export class CommissionService {
   overview(): Observable<CommissionOverview> {
     return this.api.get(API_ENDPOINTS.commissions);
   }
-  preview(finalAuctionPrice: number, basePrice: number, totalNumberOfAgents: number): Observable<AuctionCommissionCalculation> {
-    return this.api.post(`${API_ENDPOINTS.commissions}/preview`, { finalAuctionPrice, basePrice, totalNumberOfAgents });
+  preview(finalAuctionPrice: number, basePrice: number, totalNumberOfAgents: number, winningAgentCount: number): Observable<AuctionCommissionCalculation> {
+    return this.api.post(`${API_ENDPOINTS.commissions}/preview`, { finalAuctionPrice, basePrice, totalNumberOfAgents, winningAgentCount });
   }
   createSettlement(value: CreateAuctionSettlement): Observable<CommissionRecord[]> {
     return this.api.post(`${API_ENDPOINTS.commissions}/settlements`, value);
+  }
+  updateSettlement(id: string, value: CreateAuctionSettlement): Observable<CommissionRecord[]> {
+    return this.api.put(`${API_ENDPOINTS.commissions}/settlements/${id}`, value);
+  }
+  deleteSettlement(id: string): Observable<void> {
+    return this.api.delete(`${API_ENDPOINTS.commissions}/settlements/${id}`);
   }
   setPaid(id: string, isPaid: boolean): Observable<CommissionRecord> {
     return this.api.patch(`${API_ENDPOINTS.commissions}/${id}/paid`, { isPaid });

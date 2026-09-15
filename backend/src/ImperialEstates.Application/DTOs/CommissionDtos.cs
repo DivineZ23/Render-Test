@@ -7,24 +7,28 @@ public sealed record AuctionCommissionCalculationDto(
     decimal BasePrice,
     decimal AuctionPremium,
     decimal AdditionalAgentPool,
+    decimal CompanyShare,
     decimal WinningAgentBaseShare,
     decimal WinningAgentClosingShare,
     decimal WinningAgentTotal,
+    decimal AmountPerWinningAgent,
     decimal ParticipationPool,
     decimal AmountPerOtherAgent,
     int TotalAgentCount,
+    int WinningAgentCount,
     int OtherAgentCount);
 
 public sealed record PreviewAuctionCommissionRequest(
     decimal FinalAuctionPrice,
     decimal BasePrice,
-    int TotalNumberOfAgents);
+    int TotalNumberOfAgents,
+    int WinningAgentCount);
 
 public sealed record CreateAuctionSettlementRequest(
     string AuctionReference,
     decimal FinalAuctionPrice,
     decimal BasePrice,
-    string WinningAgentUserId,
+    IReadOnlyList<string> WinningAgentUserIds,
     IReadOnlyList<string> OtherAgentUserIds);
 
 public sealed record CommissionRecordDto(

@@ -5,12 +5,15 @@ export interface AuctionCommissionCalculation {
   basePrice: number;
   auctionPremium: number;
   additionalAgentPool: number;
+  companyShare: number;
   winningAgentBaseShare: number;
   winningAgentClosingShare: number;
   winningAgentTotal: number;
+  amountPerWinningAgent: number;
   participationPool: number;
   amountPerOtherAgent: number;
   totalAgentCount: number;
+  winningAgentCount: number;
   otherAgentCount: number;
 }
 
@@ -59,6 +62,6 @@ export interface CreateAuctionSettlement {
   auctionReference: string;
   finalAuctionPrice: number;
   basePrice: number;
-  winningAgentUserId: string;
+  winningAgentUserIds: string[];
   otherAgentUserIds: string[];
 }

@@ -156,6 +156,7 @@ public interface ICommissionRepository
     Task CreateManyAsync(IReadOnlyCollection<CommissionRecord> values, CancellationToken cancellationToken);
     Task<IReadOnlyList<CommissionRecord>> GetAllAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<CommissionRecord>> GetByAgentAsync(string userId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<CommissionRecord>> GetBySettlementIdAsync(string settlementId, CancellationToken cancellationToken);
     Task<CommissionRecord?> GetByIdAsync(string id, CancellationToken cancellationToken);
     Task UpdateAsync(CommissionRecord commission, CancellationToken cancellationToken);
 }

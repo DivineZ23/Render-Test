@@ -11,21 +11,28 @@ public sealed class CommissionService(
     IUserRepository users,
     IAuditRepository audits)
 {
-    private const decimal MaximumAdditionalPool = 200_000m;
+    private const decimal MaximumAdditionalPool = 250_000m;
 
-    public static AuctionCommissionCalculationDto Calculate(decimal finalPrice, decimal basePrice, int totalAgents)
+    public static AuctionCommissionCalculationDto Calculate(
+        decimal finalPrice,
+        decimal basePrice,
+        int totalAgents,
+        int winningAgentCount = 1)
     {
         if (basePrice < 0) throw new DomainRuleException("Base price cannot be negative.", "INVALID_BASE_PRICE");
         if (finalPrice < basePrice)
             throw new DomainRuleException("Final auction price cannot be lower than the base price.", "FINAL_PRICE_BELOW_BASE");
         if (totalAgents < 1)
             throw new DomainRuleException("At least one participating agent is required.", "AGENT_REQUIRED");
+        if (winningAgentCount < 1 || winningAgentCount > totalAgents)
+            throw new DomainRuleException("Select at least one winner from the participating agents.", "INVALID_WINNER_COUNT");
 
         var premium = finalPrice - basePrice;
         var pool = Math.Min(CalculateAdditionalPool(premium), MaximumAdditionalPool);
-        var otherAgentCount = totalAgents - 1;
+        var otherAgentCount = totalAgents - winningAgentCount;
         var winningClosingShare = RoundMoney(pool * 0.60m);
         var participationPool = otherAgentCount > 0 ? RoundMoney(pool - winningClosingShare) : 0m;
+        var perWinningAgent = RoundMoney((basePrice + winningClosingShare) / winningAgentCount);
         var perOtherAgent = otherAgentCount > 0 ? RoundMoney(participationPool / otherAgentCount) : 0m;
         var agentDistribution = basePrice + winningClosingShare + participationPool;
         var managementRemainder = finalPrice - agentDistribution;
@@ -37,87 +44,93 @@ public sealed class CommissionService(
             basePrice,
             premium,
             pool,
+            managementRemainder,
             basePrice,
             winningClosingShare,
             basePrice + winningClosingShare,
+            perWinningAgent,
             participationPool,
             perOtherAgent,
             totalAgents,
+            winningAgentCount,
             otherAgentCount);
     }
 
     public Task<AuctionCommissionCalculationDto> PreviewAsync(PreviewAuctionCommissionRequest request) =>
-        Task.FromResult(Calculate(request.FinalAuctionPrice, request.BasePrice, request.TotalNumberOfAgents));
+        Task.FromResult(Calculate(
+            request.FinalAuctionPrice,
+            request.BasePrice,
+            request.TotalNumberOfAgents,
+            request.WinningAgentCount));
 
     public async Task<IReadOnlyList<CommissionRecordDto>> CreateSettlementAsync(
         CreateAuctionSettlementRequest request,
         string actorId,
         CancellationToken ct)
     {
-        var actor = await GetUserAsync(actorId, ct);
-        if (actor.Role is not (UserRole.Manager or UserRole.Owner))
-            throw new DomainRuleException("Only managers and owners can record auction settlements.", "MANAGER_REQUIRED");
-
-        var otherIds = request.OtherAgentUserIds
-            .Where(x => !string.IsNullOrWhiteSpace(x) && x != request.WinningAgentUserId)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        var calculation = Calculate(request.FinalAuctionPrice, request.BasePrice, otherIds.Count + 1);
-        var winner = await GetEligibleAgentAsync(request.WinningAgentUserId, ct);
-        var others = new List<User>();
-        foreach (var id in otherIds) others.Add(await GetEligibleAgentAsync(id, ct));
-
+        await EnsureManagerAsync(actorId, ct);
         var settlementId = Guid.NewGuid().ToString("N");
-        var records = new List<CommissionRecord>
-        {
-            CreateRecord(
-                settlementId,
-                request.AuctionReference,
-                winner,
-                true,
-                calculation,
-                calculation.WinningAgentBaseShare,
-                calculation.WinningAgentClosingShare,
-                actorId)
-        };
+        var records = await BuildSettlementRecordsAsync(settlementId, request, actorId, ct);
+        await commissions.CreateManyAsync(records, ct);
+        await AuditSettlementAsync("commission.auction-settlement.created", settlementId, request, records.Count, actorId, ct);
+        return records.Select(ToDto).ToList();
+    }
 
-        if (others.Count > 0)
+    public async Task<IReadOnlyList<CommissionRecordDto>> UpdateSettlementAsync(
+        string settlementId,
+        CreateAuctionSettlementRequest request,
+        string actorId,
+        CancellationToken ct)
+    {
+        await EnsureManagerAsync(actorId, ct);
+        var existing = await GetEditableSettlementAsync(settlementId, ct);
+        var replacements = await BuildSettlementRecordsAsync(settlementId, request, actorId, ct);
+        var originalCreatedAt = existing.Min(x => x.CreatedAt);
+        var originalCreatedBy = existing[0].CreatedBy;
+        foreach (var replacement in replacements)
         {
-            var allocated = 0m;
-            for (var index = 0; index < others.Count; index++)
-            {
-                var share = index == others.Count - 1
-                    ? calculation.ParticipationPool - allocated
-                    : calculation.AmountPerOtherAgent;
-                allocated += share;
-                records.Add(CreateRecord(
-                    settlementId,
-                    request.AuctionReference,
-                    others[index],
-                    false,
-                    calculation,
-                    0,
-                    share,
-                    actorId));
-            }
+            replacement.CreatedAt = originalCreatedAt;
+            replacement.CreatedBy = originalCreatedBy;
+            replacement.UpdatedBy = actorId;
         }
 
-        await commissions.CreateManyAsync(records, ct);
+        await SoftDeleteRecordsAsync(existing, actorId, ct);
+        try
+        {
+            await commissions.CreateManyAsync(replacements, ct);
+        }
+        catch
+        {
+            foreach (var record in existing)
+            {
+                record.IsDeleted = false;
+                record.UpdatedBy = actorId;
+                record.UpdatedAt = DateTime.UtcNow;
+                await commissions.UpdateAsync(record, ct);
+            }
+            throw;
+        }
+        await AuditSettlementAsync("commission.auction-settlement.updated", settlementId, request, replacements.Count, actorId, ct);
+        return replacements.Select(ToDto).ToList();
+    }
+
+    public async Task DeleteSettlementAsync(string settlementId, string actorId, CancellationToken ct)
+    {
+        await EnsureManagerAsync(actorId, ct);
+        var existing = await GetEditableSettlementAsync(settlementId, ct);
+        await SoftDeleteRecordsAsync(existing, actorId, ct);
         await audits.CreateAsync(new AuditLog
         {
-            Action = "commission.auction-settlement.created",
+            Action = "commission.auction-settlement.deleted",
             EntityType = "commission_settlement",
             EntityId = settlementId,
             PerformedByUserId = actorId,
             Metadata = new()
             {
-                ["auctionReference"] = request.AuctionReference,
-                ["finalAuctionPrice"] = request.FinalAuctionPrice,
-                ["basePrice"] = request.BasePrice,
-                ["agentCount"] = records.Count
+                ["auctionReference"] = existing[0].AuctionReference,
+                ["agentCount"] = existing.Count
             }
         }, ct);
-        return records.Select(ToDto).ToList();
     }
 
     public async Task<CommissionOverviewDto> GetOverviewAsync(string actorId, CancellationToken ct)
@@ -197,10 +210,9 @@ public sealed class CommissionService(
     private static decimal CalculateAdditionalPool(decimal premium)
     {
         var remaining = premium;
-        var pool = Take(ref remaining, 100_000m) * 0.40m;
-        pool += Take(ref remaining, 200_000m) * 0.25m;
-        pool += Take(ref remaining, 700_000m) * 0.10m;
-        pool += remaining * 0.15m;
+        var pool = Take(ref remaining, 100_000m) * 0.30m;
+        pool += Take(ref remaining, 200_000m) * 0.20m;
+        pool += remaining * 0.10m;
         return RoundMoney(pool);
     }
 
@@ -225,7 +237,7 @@ public sealed class CommissionService(
         string actorId) => new()
         {
             SchemeVersion = CommissionRecord.CurrentSchemeVersion,
-            TenantId = $"{settlementId}:{agent.Id}",
+            TenantId = $"{settlementId}:{Guid.NewGuid():N}:{agent.Id}",
             SettlementId = settlementId,
             AuctionReference = auctionReference.Trim(),
             AgentUserId = agent.Id,
@@ -242,6 +254,139 @@ public sealed class CommissionService(
             CommissionAmount = baseShare + premiumShare,
             CreatedBy = actorId
         };
+
+    private async Task<List<CommissionRecord>> BuildSettlementRecordsAsync(
+        string settlementId,
+        CreateAuctionSettlementRequest request,
+        string actorId,
+        CancellationToken ct)
+    {
+        var winnerIds = request.WinningAgentUserIds
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (winnerIds.Count == 0)
+            throw new DomainRuleException("Select at least one winning agent.", "WINNER_REQUIRED");
+
+        var winnerIdSet = winnerIds.ToHashSet(StringComparer.Ordinal);
+        var otherIds = request.OtherAgentUserIds
+            .Where(x => !string.IsNullOrWhiteSpace(x) && !winnerIdSet.Contains(x))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var calculation = Calculate(
+            request.FinalAuctionPrice,
+            request.BasePrice,
+            winnerIds.Count + otherIds.Count,
+            winnerIds.Count);
+
+        var winners = new List<User>();
+        foreach (var id in winnerIds) winners.Add(await GetEligibleAgentAsync(id, ct));
+        var others = new List<User>();
+        foreach (var id in otherIds) others.Add(await GetEligibleAgentAsync(id, ct));
+
+        var records = new List<CommissionRecord>();
+        var allocatedBase = 0m;
+        var allocatedWinnerPremium = 0m;
+        for (var index = 0; index < winners.Count; index++)
+        {
+            var baseShare = index == winners.Count - 1
+                ? calculation.WinningAgentBaseShare - allocatedBase
+                : RoundMoney(calculation.WinningAgentBaseShare / winners.Count);
+            var premiumShare = index == winners.Count - 1
+                ? calculation.WinningAgentClosingShare - allocatedWinnerPremium
+                : RoundMoney(calculation.WinningAgentClosingShare / winners.Count);
+            allocatedBase += baseShare;
+            allocatedWinnerPremium += premiumShare;
+            records.Add(CreateRecord(
+                settlementId,
+                request.AuctionReference,
+                winners[index],
+                true,
+                calculation,
+                baseShare,
+                premiumShare,
+                actorId));
+        }
+
+        var allocatedParticipation = 0m;
+        for (var index = 0; index < others.Count; index++)
+        {
+            var share = index == others.Count - 1
+                ? calculation.ParticipationPool - allocatedParticipation
+                : calculation.AmountPerOtherAgent;
+            allocatedParticipation += share;
+            records.Add(CreateRecord(
+                settlementId,
+                request.AuctionReference,
+                others[index],
+                false,
+                calculation,
+                0,
+                share,
+                actorId));
+        }
+
+        return records;
+    }
+
+    private async Task<IReadOnlyList<CommissionRecord>> GetEditableSettlementAsync(
+        string settlementId,
+        CancellationToken ct)
+    {
+        var records = await commissions.GetBySettlementIdAsync(settlementId, ct);
+        if (records.Count == 0) throw new KeyNotFoundException("Commission settlement not found.");
+        if (records.Any(x => x.IsPaid))
+            throw new DomainRuleException(
+                "Mark every payout in this settlement as unpaid before editing or deleting it.",
+                "SETTLEMENT_HAS_PAID_PAYOUTS");
+        return records;
+    }
+
+    private async Task SoftDeleteRecordsAsync(
+        IReadOnlyList<CommissionRecord> records,
+        string actorId,
+        CancellationToken ct)
+    {
+        foreach (var record in records)
+        {
+            record.IsDeleted = true;
+            record.UpdatedBy = actorId;
+            record.UpdatedAt = DateTime.UtcNow;
+            await commissions.UpdateAsync(record, ct);
+        }
+    }
+
+    private async Task AuditSettlementAsync(
+        string action,
+        string settlementId,
+        CreateAuctionSettlementRequest request,
+        int agentCount,
+        string actorId,
+        CancellationToken ct) =>
+        await audits.CreateAsync(new AuditLog
+        {
+            Action = action,
+            EntityType = "commission_settlement",
+            EntityId = settlementId,
+            PerformedByUserId = actorId,
+            Metadata = new()
+            {
+                ["auctionReference"] = request.AuctionReference,
+                ["finalAuctionPrice"] = request.FinalAuctionPrice,
+                ["basePrice"] = request.BasePrice,
+                ["winnerCount"] = request.WinningAgentUserIds.Count,
+                ["agentCount"] = agentCount
+            }
+        }, ct);
+
+    private async Task EnsureManagerAsync(string actorId, CancellationToken ct)
+    {
+        var actor = await GetUserAsync(actorId, ct);
+        if (actor.Role is not (UserRole.Manager or UserRole.Owner))
+            throw new DomainRuleException(
+                "Only managers and owners can manage auction settlements.",
+                "MANAGER_REQUIRED");
+    }
 
     private static CommissionRecordDto ToDto(CommissionRecord value) => new(
         value.Id,
