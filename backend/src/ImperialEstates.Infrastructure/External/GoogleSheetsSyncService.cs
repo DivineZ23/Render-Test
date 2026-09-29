@@ -64,6 +64,12 @@ public sealed class GoogleSheetsSyncService(HttpClient httpClient, IOptions<Goog
     {
         using var rsa = RSA.Create();
         rsa.ImportFromPem(_options.PrivateKey.Replace("\\n", "\n", StringComparison.Ordinal));
+        var signingKey = new RsaSecurityKey(rsa)
+        {
+            // The RSA instance only lives for this token request. IdentityModel's shared
+            // provider cache must not retain a signer backed by it after it is disposed.
+            CryptoProviderFactory = new CryptoProviderFactory { CacheSignatureProviders = false }
+        };
         var now = DateTime.UtcNow;
         var descriptor = new SecurityTokenDescriptor
         {
@@ -73,7 +79,7 @@ public sealed class GoogleSheetsSyncService(HttpClient httpClient, IOptions<Goog
             NotBefore = now.AddSeconds(-30),
             IssuedAt = now,
             Expires = now.AddMinutes(55),
-            SigningCredentials = new SigningCredentials(new RsaSecurityKey(rsa), SecurityAlgorithms.RsaSha256)
+            SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256)
         };
         var assertion = new JwtSecurityTokenHandler().WriteToken(new JwtSecurityTokenHandler().CreateToken(descriptor));
         using var response = await httpClient.PostAsync(TokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
