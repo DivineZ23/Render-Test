@@ -183,7 +183,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
                         <td>{{ booking.monthlyRent | currency: 'USD' : 'symbol' : '1.0-0' }}</td>
                         <td>{{ booking.bookingAmount | currency: 'USD' : 'symbol' : '1.0-0' }}</td>
                         <td>{{ booking.createdByDisplayName || 'Unknown user' }}</td>
-                        <td>{{ booking.createdAt | date: 'mediumDate' }}</td>
+                        <td>{{ booking.createdAt | date: 'medium' }}</td>
                       </tr>
                     }
                   </tbody>

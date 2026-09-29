@@ -207,6 +207,13 @@ public sealed class RentSyncService(
             }
 
             record.PropertyId = property.Id;
+            if (property.Status == PropertyStatus.OnHold)
+            {
+                // On Hold is a manual administrative status. Rent data must not release
+                // the hold or create/update a tenancy until a manager releases it.
+                MapKnownTenant(record, matchedTenants);
+                continue;
+            }
             if (record.Status == "empty")
             {
                 await ApplyPropertyStatusAsync(property, record, actorId, ct);
@@ -322,6 +329,8 @@ public sealed class RentSyncService(
         CancellationToken ct,
         bool forceUpdate = false)
     {
+        if (property.Status == PropertyStatus.OnHold) return;
+
         var previous = property.Status;
         if (record.Status == "empty")
         {

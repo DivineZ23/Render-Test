@@ -57,6 +57,31 @@ public sealed class RentSyncServiceTests
     }
 
     [Fact]
+    public async Task Sync_preserves_a_property_manual_on_hold_status()
+    {
+        var property = new Property { Id = "property-1", PropertyName = "Marina Drive 8" };
+        property.PlaceOnHold("Reserved for maintenance");
+        var service = new RentSyncService(
+            new SnapshotRepository(),
+            new TenantRepository(),
+            new PropertyRepository(property),
+            new LifecycleStore(),
+            new StatusHistoryRepository(),
+            new UserRepository(new User { Id = "owner-1", DisplayName = "Divine", Role = UserRole.Owner }),
+            new GoogleSheetsSyncService(),
+            new AuditRepository());
+
+        await service.SyncAsync(
+            new RentSyncRequest(Export("Empty")),
+            "owner-1",
+            default);
+
+        Assert.Equal(PropertyStatus.OnHold, property.Status);
+        Assert.Equal("Reserved for maintenance", property.UnavailableReason);
+        Assert.Null(property.CurrentTenantId);
+    }
+
+    [Fact]
     public async Task Sync_generates_notices_only_when_a_property_enters_a_notice_status()
     {
         var snapshots = new SnapshotRepository();
