@@ -165,7 +165,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
                       <th>Rent</th>
                       <th>Booking amount</th>
                       <th>Booked by</th>
-                      <th>Added</th>
+                      <th>Booked on</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -184,8 +184,10 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
                         <td>{{ booking.bookingAmount | currency: 'USD' : 'symbol' : '1.0-0' }}</td>
                         <td>{{ booking.createdByDisplayName || 'Unknown user' }}</td>
                         <td>
-                          {{ booking.createdAt | date: 'mediumDate' }}
-                          <small>{{ booking.createdAt | date: 'shortTime' }}</small>
+                          <time class="booking-timestamp" [attr.datetime]="booking.createdAt">
+                            <b>{{ booking.createdAt | date: 'mediumDate' }}</b>
+                            <span>at {{ booking.createdAt | date: 'shortTime' }}</span>
+                          </time>
                         </td>
                       </tr>
                     }
@@ -390,6 +392,19 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
       }
       .discord {
         font-variant-numeric: tabular-nums;
+      }
+      .booking-timestamp {
+        display: grid;
+        gap: 2px;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      .booking-timestamp b {
+        font-size: 0.78rem;
+      }
+      .booking-timestamp span {
+        color: var(--muted);
+        font-size: 0.7rem;
       }
       .state,
       .empty-wrap {
