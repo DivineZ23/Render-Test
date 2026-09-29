@@ -27,9 +27,42 @@ public sealed record EvictionHistoryDto(
     string Reason, IReadOnlyList<string> StorageImageUrls, string? EvictedByUserId,
     string? EvictedByDisplayName, DateTime EvictedAt);
 
+public sealed class AuditLogQuery
+{
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 25;
+    public string? Search { get; init; }
+    public string? Category { get; init; }
+    public string? EntityType { get; init; }
+    public string? ActorId { get; init; }
+    public DateTime? From { get; init; }
+    public DateTime? To { get; init; }
+    public string SortDirection { get; init; } = "desc";
+
+    // Populated by AuditLogService so searches also match readable user/entity names.
+    public IReadOnlyCollection<string> MatchingActorIds { get; init; } = [];
+    public IReadOnlyCollection<string> MatchingEntityIds { get; init; } = [];
+}
+
 public sealed record AuditLogDto(
-    string Id, string Action, string EntityType, string EntityId, string PerformedByUserId,
-    IReadOnlyDictionary<string, object?>? Metadata, DateTime CreatedAt);
+    string Id,
+    string Action,
+    string ActionLabel,
+    string Category,
+    string Severity,
+    string Summary,
+    string EntityType,
+    string EntityTypeLabel,
+    string EntityId,
+    string EntityDisplayName,
+    string PerformedByUserId,
+    string PerformedByDisplayName,
+    string? PerformedByAvatarUrl,
+    string? PerformedByRole,
+    IReadOnlyDictionary<string, object?>? PreviousValues,
+    IReadOnlyDictionary<string, object?>? NewValues,
+    IReadOnlyDictionary<string, object?>? Metadata,
+    DateTime CreatedAt);
 
 public sealed record DashboardSummaryDto(
     long TotalBlocks, long TotalProperties, long AvailableProperties, long BookedProperties,

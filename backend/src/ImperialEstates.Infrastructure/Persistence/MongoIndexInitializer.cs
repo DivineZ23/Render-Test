@@ -49,7 +49,12 @@ public sealed class MongoIndexInitializer(MongoContext db)
             new CreateIndexModel<RecruitmentApplication>(Builders<RecruitmentApplication>.IndexKeys.Ascending(x => x.CharacterCid).Ascending(x => x.DiscordId).Ascending(x => x.Status), new() { Name = "ix_recruitment_applicant_status" })
         ], cancellationToken);
         await db.StatusHistory.Indexes.CreateOneAsync(new CreateIndexModel<PropertyStatusHistory>(Builders<PropertyStatusHistory>.IndexKeys.Ascending(x => x.PropertyId).Descending(x => x.CreatedAt), new() { Name = "ix_history_property_date" }), cancellationToken: cancellationToken);
-        await db.AuditLogs.Indexes.CreateOneAsync(new CreateIndexModel<AuditLog>(Builders<AuditLog>.IndexKeys.Ascending(x => x.EntityType).Ascending(x => x.EntityId).Descending(x => x.CreatedAt), new() { Name = "ix_audit_entity_date" }), cancellationToken: cancellationToken);
+        await db.AuditLogs.Indexes.CreateManyAsync([
+            new CreateIndexModel<AuditLog>(Builders<AuditLog>.IndexKeys.Descending(x => x.CreatedAt), new() { Name = "ix_audit_date" }),
+            new CreateIndexModel<AuditLog>(Builders<AuditLog>.IndexKeys.Ascending(x => x.EntityType).Ascending(x => x.EntityId).Descending(x => x.CreatedAt), new() { Name = "ix_audit_entity_date" }),
+            new CreateIndexModel<AuditLog>(Builders<AuditLog>.IndexKeys.Ascending(x => x.PerformedByUserId).Descending(x => x.CreatedAt), new() { Name = "ix_audit_actor_date" }),
+            new CreateIndexModel<AuditLog>(Builders<AuditLog>.IndexKeys.Ascending(x => x.Action).Descending(x => x.CreatedAt), new() { Name = "ix_audit_action_date" })
+        ], cancellationToken);
         await db.Settings.Indexes.CreateOneAsync(new CreateIndexModel<ApplicationSetting>(Builders<ApplicationSetting>.IndexKeys.Ascending(x => x.Key), new() { Name = "ux_setting_key", Unique = true }), cancellationToken: cancellationToken);
         await db.RentSyncSnapshots.Indexes.CreateOneAsync(new CreateIndexModel<RentSyncSnapshot>(Builders<RentSyncSnapshot>.IndexKeys.Descending(x => x.UpdatedAt), new() { Name = "ix_rent_sync_updated" }), cancellationToken: cancellationToken);
         await db.Commissions.Indexes.CreateManyAsync([

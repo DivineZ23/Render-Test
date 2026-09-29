@@ -101,6 +101,8 @@ public interface IUserRepository
         return values;
     }
     Task<User?> GetByDiscordIdAsync(string discordId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<string>> SearchIdsAsync(string search, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<string>>([]);
     Task<User?> GetByCidAsync(int cid, CancellationToken cancellationToken);
     Task<long> CountActiveManagersAsync(CancellationToken cancellationToken);
     Task<long> CountPendingAsync(CancellationToken cancellationToken);
@@ -126,6 +128,8 @@ public interface IAuditRepository
 {
     Task CreateAsync(AuditLog auditLog, CancellationToken cancellationToken);
     Task<PagedResult<AuditLog>> QueryAsync(int page, int pageSize, CancellationToken cancellationToken);
+    Task<PagedResult<AuditLog>> QueryAsync(AuditLogQuery query, CancellationToken cancellationToken) =>
+        QueryAsync(query.Page, query.PageSize, cancellationToken);
 }
 
 public interface IRecruitmentApplicationRepository

@@ -59,6 +59,17 @@ public sealed class UserRepository(MongoContext db) : IUserRepository
     public Task<User?> GetByIdAsync(string id, CancellationToken ct) => db.Users.Find(x => x.Id == id && !x.IsDeleted).FirstOrDefaultAsync(ct)!;
     public async Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
         await db.Users.Find(x => ids.Contains(x.Id) && !x.IsDeleted).ToListAsync(ct);
+    public async Task<IReadOnlyList<string>> SearchIdsAsync(string search, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(search)) return [];
+        var regex = new MongoDB.Bson.BsonRegularExpression(
+            System.Text.RegularExpressions.Regex.Escape(search.Trim()), "i");
+        var f = Builders<User>.Filter;
+        var filter = f.Regex(x => x.DisplayName, regex) |
+                     f.Regex(x => x.Username, regex) |
+                     f.Regex(x => x.FullName, regex);
+        return await db.Users.Find(filter).Project(x => x.Id).Limit(100).ToListAsync(ct);
+    }
     public Task<User?> GetByDiscordIdAsync(string id, CancellationToken ct) => db.Users.Find(x => x.DiscordUserId == id && !x.IsDeleted).FirstOrDefaultAsync(ct)!;
     public Task<User?> GetByCidAsync(int cid, CancellationToken ct) => db.Users.Find(x => x.Cid == cid && !x.IsDeleted).FirstOrDefaultAsync(ct)!;
     public Task<long> CountActiveManagersAsync(CancellationToken ct) => db.Users.CountDocumentsAsync(x => !x.IsDeleted && x.Role == UserRole.Manager && x.ApprovalStatus == ApprovalStatus.Approved && x.AccessStatus == AccessStatus.Active, cancellationToken: ct);

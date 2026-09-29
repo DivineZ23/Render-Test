@@ -4,6 +4,7 @@ import { API_ENDPOINTS } from '../config/api-endpoints';
 import { PagedResult } from '../models/api.models';
 import {
   AuditLog,
+  AuditLogQuery,
   CreateEnquiryRequest,
   CreateRecruitmentApplicationRequest,
   DashboardSummary,
@@ -156,8 +157,18 @@ export class CommissionService {
   overview(): Observable<CommissionOverview> {
     return this.api.get(API_ENDPOINTS.commissions);
   }
-  preview(finalAuctionPrice: number, basePrice: number, totalNumberOfAgents: number, winningAgentCount: number): Observable<AuctionCommissionCalculation> {
-    return this.api.post(`${API_ENDPOINTS.commissions}/preview`, { finalAuctionPrice, basePrice, totalNumberOfAgents, winningAgentCount });
+  preview(
+    finalAuctionPrice: number,
+    basePrice: number,
+    totalNumberOfAgents: number,
+    winningAgentCount: number,
+  ): Observable<AuctionCommissionCalculation> {
+    return this.api.post(`${API_ENDPOINTS.commissions}/preview`, {
+      finalAuctionPrice,
+      basePrice,
+      totalNumberOfAgents,
+      winningAgentCount,
+    });
   }
   createSettlement(value: CreateAuctionSettlement): Observable<CommissionRecord[]> {
     return this.api.post(`${API_ENDPOINTS.commissions}/settlements`, value);
@@ -234,7 +245,7 @@ export class NoticeService {
 @Injectable({ providedIn: 'root' })
 export class AuditService {
   private api = inject(ApiService);
-  all(): Observable<PagedResult<AuditLog>> {
-    return this.api.get(API_ENDPOINTS.auditLogs, { page: 1, pageSize: 100 });
+  all(query: AuditLogQuery = {}): Observable<PagedResult<AuditLog>> {
+    return this.api.get(API_ENDPOINTS.auditLogs, { page: 1, pageSize: 25, ...query });
   }
 }

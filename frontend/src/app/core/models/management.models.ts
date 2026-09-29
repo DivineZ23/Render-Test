@@ -72,11 +72,33 @@ export interface Tenant {
 export interface AuditLog {
   id: string;
   action: string;
+  actionLabel: string;
+  category: 'access' | 'portfolio' | 'finance' | 'operations' | string;
+  severity: 'info' | 'success' | 'warning' | 'danger' | string;
+  summary: string;
   entityType: string;
+  entityTypeLabel: string;
   entityId: string;
+  entityDisplayName: string;
   performedByUserId: string;
+  performedByDisplayName: string;
+  performedByAvatarUrl?: string;
+  performedByRole?: string;
+  previousValues?: Record<string, unknown>;
+  newValues?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   createdAt: string;
+}
+export interface AuditLogQuery {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  category?: string;
+  entityType?: string;
+  actorId?: string;
+  from?: string;
+  to?: string;
+  sortDirection?: 'asc' | 'desc';
 }
 export interface StatusHistory {
   id: string;
