@@ -266,6 +266,10 @@ const EMPTY_RESULT: PagedResult<AuditLog> = {
     }`,
   styles: [
     `
+      :host {
+        display: block;
+        container-type: inline-size;
+      }
       .page-title {
         display: flex;
         justify-content: space-between;
@@ -465,6 +469,7 @@ const EMPTY_RESULT: PagedResult<AuditLog> = {
         background: var(--danger);
       }
       .event-body {
+        min-width: 0;
         padding: 22px 0;
         border-bottom: 1px solid var(--border);
       }
@@ -473,7 +478,9 @@ const EMPTY_RESULT: PagedResult<AuditLog> = {
       }
       .event-topline {
         display: flex;
+        align-items: flex-start;
         justify-content: space-between;
+        flex-wrap: wrap;
         gap: 20px;
       }
       .badges {
@@ -498,6 +505,8 @@ const EMPTY_RESULT: PagedResult<AuditLog> = {
         color: var(--muted);
       }
       time {
+        flex: 0 0 auto;
+        margin-left: auto;
         text-align: right;
         white-space: nowrap;
       }
@@ -518,10 +527,12 @@ const EMPTY_RESULT: PagedResult<AuditLog> = {
         margin: 0;
         color: var(--muted);
         font-size: 0.88rem;
+        overflow-wrap: anywhere;
       }
       .actor-row {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         margin-top: 15px;
         gap: 9px;
       }
@@ -542,6 +553,7 @@ const EMPTY_RESULT: PagedResult<AuditLog> = {
       }
       .actor-row > span:nth-child(2) {
         display: grid;
+        min-width: 0;
       }
       .actor-row b {
         font-size: 0.78rem;
@@ -551,6 +563,7 @@ const EMPTY_RESULT: PagedResult<AuditLog> = {
         font-size: 0.68rem;
       }
       .details-toggle {
+        flex: 0 0 auto;
         margin-left: auto;
         border: 0;
         background: none;
@@ -685,11 +698,44 @@ const EMPTY_RESULT: PagedResult<AuditLog> = {
         }
         .actor-row {
           align-items: flex-start;
-          flex-wrap: wrap;
         }
         .details-toggle {
-          width: 100%;
-          margin-left: 41px;
+          width: auto;
+          margin-left: auto;
+        }
+      }
+      @container (max-width: 700px) {
+        .event-topline {
+          display: grid;
+          gap: 10px;
+        }
+        .event-topline time {
+          margin-left: 0;
+          text-align: left;
+        }
+        .actor-row {
+          align-items: center;
+        }
+        .details-toggle {
+          width: auto;
+          margin-left: auto;
+        }
+      }
+      @container (max-width: 460px) {
+        .activity-list {
+          padding: 4px 10px;
+        }
+        .event {
+          grid-template-columns: 14px minmax(0, 1fr);
+          gap: 8px;
+        }
+        .actor-row {
+          display: grid;
+          grid-template-columns: 32px minmax(0, 1fr);
+        }
+        .details-toggle {
+          grid-column: 2;
+          margin: 2px 0 0;
           justify-content: flex-start;
         }
       }
