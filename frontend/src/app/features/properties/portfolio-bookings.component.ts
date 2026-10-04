@@ -269,9 +269,12 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
       }
       summary {
         display: grid;
-        grid-template-columns: auto minmax(210px, 1.3fr) minmax(150px, 0.75fr) auto auto auto;
+        grid-template-areas: 'icon property type spacer status count chevron';
+        grid-template-columns:
+          38px minmax(240px, 420px) minmax(190px, 280px) minmax(24px, 1fr) 110px 72px
+          18px;
         align-items: center;
-        gap: 18px;
+        column-gap: 18px;
         padding: 16px 18px;
         cursor: pointer;
         list-style: none;
@@ -282,21 +285,43 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
       summary:hover {
         background: var(--surface-hover);
       }
+      summary .property-icon {
+        grid-area: icon;
+      }
+      .property-name {
+        grid-area: property;
+        min-width: 0;
+      }
+      .property-type {
+        grid-area: type;
+        min-width: 0;
+      }
       .property-name b,
       .property-type b {
         display: block;
         margin-top: 3px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         font-size: 0.84rem;
       }
+      summary app-status-badge {
+        grid-area: status;
+        justify-self: center;
+      }
       .booking-count {
-        min-width: 68px;
-        text-align: right;
+        grid-area: count;
+        justify-self: center;
+        min-width: 0;
+        text-align: center;
       }
       .booking-count b {
         display: block;
         font-size: 1rem;
       }
       .chevron {
+        grid-area: chevron;
+        justify-self: end;
         width: 18px;
         color: var(--muted);
         transition: transform 160ms ease;
@@ -416,11 +441,19 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
           grid-template-columns: 1fr;
         }
         summary {
+          grid-template-areas: 'icon property count chevron';
           grid-template-columns: auto 1fr auto auto;
         }
         .property-type,
         summary app-status-badge {
           display: none;
+        }
+      }
+      @media (min-width: 851px) and (max-width: 1150px) {
+        summary {
+          grid-template-areas: 'icon property type status count chevron';
+          grid-template-columns: 38px minmax(210px, 1fr) minmax(160px, 0.7fr) 100px 68px 18px;
+          column-gap: 14px;
         }
       }
       @media (max-width: 520px) {

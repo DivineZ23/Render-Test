@@ -19,7 +19,10 @@ import {
       <div>
         <p class="eyebrow">Administration</p>
         <h1>Access management</h1>
-        <p>Choose which dashboard pages each role can open. Owner access is always protected.</p>
+        <p>
+          Choose which dashboard pages each role can open. Owners can also tailor their own
+          navigation.
+        </p>
       </div>
       <span><svg lucideLockKeyhole></svg>Owner only</span>
     </div>
@@ -30,7 +33,8 @@ import {
           <b>Navigation permissions</b>
           <p>
             Control a complete section at once or fine-tune its individual pages. Restricted roles
-            remain protected by server-side authorization.
+            remain protected by server-side authorization. Access Management always stays visible
+            to the Owner so these choices can be restored.
           </p>
         </div>
       </div>
@@ -267,17 +271,20 @@ export class AccessManagementComponent {
   }
 
   configurable(resource: AccessResourceDefinition, role: UserRole): boolean {
-    return role !== 'owner' && roleCanOpen(resource, role);
+    return (
+      roleCanOpen(resource, role) &&
+      !(role === 'owner' && resource.key === 'administration.accessManagement')
+    );
   }
 
   resourceState(resource: AccessResourceDefinition, role: UserRole): string {
-    if (role === 'owner') return 'Always';
+    if (role === 'owner' && resource.key === 'administration.accessManagement') return 'Always';
     if (!roleCanOpen(resource, role)) return 'Restricted';
     return this.allowed(resource.key, role) ? 'Allowed' : 'Hidden';
   }
 
   sectionConfigurable(section: AccessSectionDefinition, role: UserRole): boolean {
-    return role !== 'owner' && section.resources.some((resource) => roleCanOpen(resource, role));
+    return section.resources.some((resource) => this.configurable(resource, role));
   }
 
   sectionAllowed(section: AccessSectionDefinition, role: UserRole): boolean {
@@ -292,7 +299,6 @@ export class AccessManagementComponent {
   }
 
   sectionState(section: AccessSectionDefinition, role: UserRole): string {
-    if (role === 'owner') return 'Always';
     if (!this.sectionConfigurable(section, role)) return 'Restricted';
     if (this.sectionPartiallyAllowed(section, role)) return 'Mixed';
     return this.sectionAllowed(section, role) ? 'All' : 'Hidden';
@@ -303,7 +309,7 @@ export class AccessManagementComponent {
     const current = this.access.settings();
     const permissions = { ...current.permissions };
     for (const resource of section.resources) {
-      if (!roleCanOpen(resource, role)) continue;
+      if (!this.configurable(resource, role)) continue;
       permissions[resource.key] = { ...permissions[resource.key], [role]: allowed };
     }
     this.access.save({ permissions }).subscribe();

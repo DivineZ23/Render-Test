@@ -63,7 +63,7 @@ public sealed class AccessManagementController(ISettingRepository settings, IUse
             if (values.TryGetValue(resource, out var stored))
                 foreach (var role in roles.Keys.ToArray())
                     if (roles[role] && stored.TryGetValue(role, out var allowed)) roles[role] = allowed;
-        foreach (var roles in defaults.Values) roles["owner"] = true;
+        defaults["administration.accessManagement"]["owner"] = true;
         return defaults;
     }
 

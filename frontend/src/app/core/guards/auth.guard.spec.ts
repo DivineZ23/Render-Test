@@ -68,6 +68,7 @@ describe('route guards', () => {
           useValue: {
             load: () => of({ permissions: {} }),
             canAccess: (resource: string) => resource === 'portfolio.properties.sell',
+            firstAccessibleUrl: () => '/dashboard',
           },
         },
       ],

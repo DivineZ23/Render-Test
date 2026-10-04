@@ -47,7 +47,7 @@ export const pageAccessGuard: CanActivateFn = (route: ActivatedRouteSnapshot) =>
       map(() =>
         access.canAccess(resource) && (!parentResource || access.canAccess(parentResource))
           ? true
-          : router.createUrlTree(['/dashboard']),
+          : router.parseUrl(access.firstAccessibleUrl()),
       ),
     );
 };

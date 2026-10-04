@@ -1186,6 +1186,7 @@ export class NoticesComponent {
           );
         }
         this.loadSnapshots();
+        this.loadEvictionQueue();
         this.syncing.set(false);
       },
       error: (response) => {
@@ -1220,7 +1221,9 @@ export class NoticesComponent {
 
   statusLabel(record: RentSyncRecord) {
     if (record.status === 'paid')
-      return `Paid through ${record.paidThrough ? new Date(record.paidThrough).toLocaleDateString() : ''}`;
+      return record.paidThrough
+        ? `Paid through ${new Date(record.paidThrough).toLocaleDateString()}`
+        : 'Paid';
     return record.status[0].toUpperCase() + record.status.slice(1);
   }
 

@@ -53,20 +53,30 @@ public sealed class RentSyncService(
             if (property is null || property.Status != PropertyStatus.Evictable || property.CurrentTenantId is null)
                 continue;
 
-            var latestNotice = allSnapshots
-                .SelectMany(snapshot => snapshot.Records.Select(record => new { Snapshot = snapshot, Record = record }))
-                .FirstOrDefault(entry =>
-                    entry.Record.Status == "evictable" &&
-                    entry.Record.NoticeGenerated != false &&
-                    IsSameProperty(current, entry.Record));
-            if (latestNotice?.Record is not { IsResolved: true, ResolvedAt: not null } notice) continue;
+            RentSyncSnapshot? noticeSnapshot = null;
+            RentSyncRecord? notice = null;
+            foreach (var snapshot in allSnapshots)
+            {
+                var matchingRecord = snapshot.Records.FirstOrDefault(record => IsSameProperty(current, record));
+                if (matchingRecord is null) continue;
+
+                // A paid/overdue/empty record closes the previous eviction cycle. Never
+                // reuse a sent notice (or its queue hold) from before that boundary.
+                if (matchingRecord.Status != "evictable") break;
+                if (matchingRecord.NoticeGenerated == false) continue;
+
+                noticeSnapshot = snapshot;
+                notice = matchingRecord;
+                break;
+            }
+            if (noticeSnapshot is null || notice is not { IsResolved: true, ResolvedAt: not null }) continue;
 
             var eligibleAt = notice.ResolvedAt.Value.AddHours(24);
             result.Add(new EvictionQueueItemDto(
                 property.Id,
                 property.PropertyId,
                 property.PropertyName,
-                latestNotice.Snapshot.Id,
+                noticeSnapshot.Id,
                 notice.RowNumber,
                 current.RenterName,
                 current.Cid,
@@ -605,6 +615,7 @@ public sealed class RentSyncService(
     private static (string Status, DateTime? PaidThrough) ParseStatus(string value, int row)
     {
         var status = value.Trim();
+        if (status.Equals("Paid", StringComparison.OrdinalIgnoreCase)) return ("paid", null);
         if (status.StartsWith("Paid ", StringComparison.OrdinalIgnoreCase))
         {
             if (!DateTime.TryParse(status[5..], CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var date))
