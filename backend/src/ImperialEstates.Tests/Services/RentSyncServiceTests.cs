@@ -289,6 +289,57 @@ public sealed class RentSyncServiceTests
         Assert.False(waiting.IsReady);
     }
 
+    [Fact]
+    public async Task Overdue_sync_closes_the_eviction_cycle_and_a_later_cycle_gets_a_new_notice()
+    {
+        var snapshots = new SnapshotRepository();
+        var tenant = new Tenant
+        {
+            Id = "tenant-1",
+            PropertyId = "property-1",
+            Cid = 99,
+            DiscordId = "727075012489510944",
+            Status = TenantStatus.Active,
+        };
+        var property = new Property { Id = "property-1", PropertyId = 8, PropertyName = "Marina Drive 8" };
+        property.SetTenantForPersistence(tenant.Id);
+        property.SetStatusForPersistence(PropertyStatus.Paid);
+        var service = new RentSyncService(
+            snapshots,
+            new TenantRepository(tenant),
+            new PropertyRepository(property),
+            new LifecycleStore(),
+            new StatusHistoryRepository(),
+            new UserRepository(new User { Id = "owner-1", DisplayName = "Divine", Role = UserRole.Owner }),
+            new GoogleSheetsSyncService(),
+            new AuditRepository());
+
+        var firstCycle = await service.SyncAsync(
+            new RentSyncRequest(Export("Evictable")), "owner-1", default);
+        await service.SetResolutionAsync(firstCycle.Id, 1, true, "owner-1", default);
+        await service.SetEvictionHoldAsync(firstCycle.Id, 1, true, "owner-1", default);
+
+        var overdue = await service.SyncAsync(
+            new RentSyncRequest(Export("Overdue")), "owner-1", default);
+
+        Assert.Equal(PropertyStatus.Overdue, property.Status);
+        Assert.NotNull(Assert.Single(overdue.Records).OverdueNotice);
+        Assert.Empty(await service.GetEvictionQueueAsync(default));
+
+        var secondCycle = await service.SyncAsync(
+            new RentSyncRequest(Export("Evictable")), "owner-1", default);
+        var secondNotice = Assert.Single(secondCycle.Records);
+
+        Assert.NotNull(secondNotice.EvictionNotice);
+        Assert.False(secondNotice.IsResolved);
+        Assert.Empty(await service.GetEvictionQueueAsync(default));
+
+        await service.SetResolutionAsync(secondCycle.Id, 1, true, "owner-1", default);
+        var waiting = Assert.Single(await service.GetEvictionQueueAsync(default));
+        Assert.False(waiting.IsOnHold);
+        Assert.False(waiting.IsReady);
+    }
+
     private static RentSyncService CreateService(SnapshotRepository snapshots) => new(
         snapshots,
         new TenantRepository(),

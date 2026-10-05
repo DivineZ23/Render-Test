@@ -561,7 +561,6 @@ public sealed class RentSyncService(
     {
         "paid" => PropertyStatus.Paid,
         "evictable" => PropertyStatus.Evictable,
-        "overdue" when property.Status == PropertyStatus.Evictable => PropertyStatus.Evictable,
         "overdue" when property.Status == PropertyStatus.Overdue &&
             property.StatusChangedAt <= DateTime.UtcNow.AddDays(-7) => PropertyStatus.Evictable,
         "overdue" => PropertyStatus.Overdue,
@@ -664,7 +663,7 @@ public sealed class RentSyncService(
             var previous = FindPreviousRecord(current, previousRecords);
             current.NoticeGenerated = current.Status switch
             {
-                "overdue" => previous is null || previous.Status == "paid",
+                "overdue" => previous is null || previous.Status is "paid" or "evictable",
                 "evictable" => previous is null || previous.Status is "paid" or "overdue",
                 _ => false,
             };
