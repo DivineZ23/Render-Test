@@ -324,7 +324,7 @@ export class PropertyBookingComponent {
       `House type: ${propertyTypeLabel(property.type)}`,
       `Rent price: ${this.currency(value.monthlyRent!)}`,
       `Booking amount: ${this.currency(value.bookingAmount!)}`,
-      `Booked by: ${this.auth.user()?.displayName || this.auth.user()?.username || 'Unknown'}`,
+      `Booked by: ${this.receiptActorName()}`,
     ].join('\n');
 
     await navigator.clipboard.writeText(receipt);
@@ -381,6 +381,11 @@ export class PropertyBookingComponent {
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     }).format(value);
+  }
+
+  private receiptActorName(): string {
+    const user = this.auth.user();
+    return user?.fullName?.trim() || user?.displayName || user?.username || 'Unknown';
   }
 
   private canBook(property: Property): boolean {

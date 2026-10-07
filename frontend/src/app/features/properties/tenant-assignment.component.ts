@@ -389,7 +389,7 @@ export class TenantAssignmentComponent {
       `House type: ${this.typeLabel(property.type)}`,
       `Rent price: ${this.currency(value.monthlyRent!)}`,
       `Deposit amount: ${this.currency(value.securityDeposit ?? 0)}`,
-      `Sold by: ${this.auth.user()?.displayName || this.auth.user()?.username || 'Unknown'}`,
+      `Sold by: ${this.receiptActorName()}`,
     ].join('\n');
 
     await navigator.clipboard.writeText(receipt);
@@ -429,5 +429,10 @@ export class TenantAssignmentComponent {
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     }).format(value);
+  }
+
+  private receiptActorName(): string {
+    const user = this.auth.user();
+    return user?.fullName?.trim() || user?.displayName || user?.username || 'Unknown';
   }
 }
