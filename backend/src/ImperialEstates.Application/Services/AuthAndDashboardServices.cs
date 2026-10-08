@@ -38,7 +38,13 @@ public sealed class AuthService(IUserRepository users, ITokenService tokens, IOw
     }
 }
 
-public sealed class DashboardService(IBlockRepository blocks, IPropertyRepository properties, IEnquiryRepository enquiries, IUserRepository users, IStatusHistoryRepository history)
+public sealed class DashboardService(
+    IBlockRepository blocks,
+    IPropertyRepository properties,
+    IEnquiryRepository enquiries,
+    IUserRepository users,
+    IStatusHistoryRepository history,
+    IRentSyncRepository rentSync)
 {
     public async Task<DashboardSummaryDto> GetAsync(CancellationToken ct)
     {
@@ -47,11 +53,21 @@ public sealed class DashboardService(IBlockRepository blocks, IPropertyRepositor
         var pendingEnquiriesTask = enquiries.CountPendingAsync(ct);
         var pendingUsersTask = users.CountPendingAsync(ct);
         var recentHistoryTask = history.GetRecentAsync(8, ct);
-        await Task.WhenAll(blocksTask, propertiesTask, pendingEnquiriesTask, pendingUsersTask, recentHistoryTask);
+        var latestRentSyncTask = rentSync.GetCurrentAsync(ct);
+        await Task.WhenAll(
+            blocksTask,
+            propertiesTask,
+            pendingEnquiriesTask,
+            pendingUsersTask,
+            recentHistoryTask,
+            latestRentSyncTask);
         var activeBlocks = blocksTask.Result;
         var allProperties = propertiesTask.Result;
         var totalCost = allProperties.Sum(property => property.Type.StateCost() ?? 0);
-        var totalRevenue = allProperties.Sum(property => property.Rent);
+        var latestRentSync = latestRentSyncTask.Result;
+        var totalRevenue = latestRentSync is null
+            ? allProperties.Sum(property => property.Rent)
+            : latestRentSync.Records.Sum(record => record.Income);
         var totalProfit = totalRevenue - totalCost;
         var blockNames = activeBlocks.ToDictionary(block => block.Id, block => block.BlockName);
         var blockFinancials = allProperties
