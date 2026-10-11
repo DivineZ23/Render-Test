@@ -10,6 +10,7 @@ const DASHBOARD_DESTINATIONS: ReadonlyArray<readonly [string, string]> = [
   ['overview', '/dashboard'],
   ['team', '/dashboard/team'],
   ['analytics', '/dashboard/analytics'],
+  ['agentAnalytics', '/dashboard/agent-analytics'],
   ['commissions', '/dashboard/commissions'],
   ['auction.createListing', '/dashboard/auction/create-listing'],
   ['auction.listings', '/dashboard/auction/listings'],

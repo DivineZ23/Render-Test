@@ -8,7 +8,11 @@ using Microsoft.AspNetCore.Mvc;
 namespace ImperialEstates.Api.Controllers;
 
 [ApiController, Authorize(Policy = "ApprovedUser"), Route("api/v1/dashboard")]
-public sealed class DashboardController(DashboardService service, ITenantRepository tenants, IPropertyRepository properties) : ControllerBase
+public sealed class DashboardController(
+    DashboardService service,
+    AgentAnalyticsService agentAnalytics,
+    ITenantRepository tenants,
+    IPropertyRepository properties) : ControllerBase
 {
     [HttpGet] public Task<DashboardSummaryDto> Get(CancellationToken ct) => service.GetAsync(ct);
 
@@ -31,4 +35,8 @@ public sealed class DashboardController(DashboardService service, ITenantReposit
             sales.Take(6).Select(x => Map(x, x.CreatedAt, x.SecurityDeposit)).ToList(),
             evictions.Take(6).Select(x => Map(x, x.EndDate!.Value, x.MonthlyRent)).ToList());
     }
+
+    [Authorize(Policy = "Manager"), HttpGet("agents")]
+    public Task<AgentAnalyticsDto> Agents(DateTime? from, DateTime? to, CancellationToken ct) =>
+        agentAnalytics.GetAsync(from, to, ct);
 }

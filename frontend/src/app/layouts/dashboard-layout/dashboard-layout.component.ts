@@ -94,7 +94,10 @@ import { PropertyService } from '../../core/services/property.service';
         ><strong>Imperial Estates</strong>
       </div>
       <nav aria-label="Dashboard sections">
-        <section class="nav-section" *ngIf="access.canAccess('analytics')">
+        <section
+          class="nav-section"
+          *ngIf="hasAny(['analytics', 'agentAnalytics'])"
+        >
           <button
             class="section-toggle"
             type="button"
@@ -112,7 +115,14 @@ import { PropertyService } from '../../core/services/property.service';
                 routerLink="/dashboard/analytics"
                 routerLinkActive="active"
               >
-                <svg lucideChartNoAxesCombined></svg><b>Analytics</b>
+                <svg lucideChartNoAxesCombined></svg><b>My Analytics</b>
+              </a>
+              <a
+                *ngIf="auth.isManager() && access.canAccess('agentAnalytics')"
+                routerLink="/dashboard/agent-analytics"
+                routerLinkActive="active"
+              >
+                <svg lucideUsersRound></svg><b>Agent Analytics</b>
               </a>
             </div>
           </ng-container>

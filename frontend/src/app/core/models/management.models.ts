@@ -141,6 +141,42 @@ export interface PersonalStatistics {
   recentEvictions: PersonalActivity[];
 }
 
+export interface AgentPerformance {
+  userId: string;
+  displayName: string;
+  fullName?: string;
+  avatarUrl?: string;
+  role: 'agent' | 'seniorAgent';
+  bookings: number;
+  bookingAmount: number;
+  convertedBookings: number;
+  housesSold: number;
+  commissionTaken: number;
+  commissionOwed: number;
+  housesEvicted: number;
+  noticesSent: number;
+  conversionRate: number;
+  performanceScore: number;
+}
+
+export interface AgentAnalyticsTotals {
+  agents: number;
+  bookings: number;
+  bookingAmount: number;
+  housesSold: number;
+  commissionTaken: number;
+  commissionOwed: number;
+  housesEvicted: number;
+  noticesSent: number;
+}
+
+export interface AgentAnalytics {
+  from?: string;
+  to?: string;
+  totals: AgentAnalyticsTotals;
+  agents: AgentPerformance[];
+}
+
 export type RentSyncStatus = 'paid' | 'overdue' | 'evictable' | 'empty';
 export interface RentSyncRecord {
   rowNumber: number;

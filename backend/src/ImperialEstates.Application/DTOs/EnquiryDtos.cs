@@ -79,3 +79,36 @@ public sealed record PersonalStatisticsDto(
     int HousesSold, int HousesEvicted, decimal TotalDepositTaken,
     IReadOnlyList<PersonalActivityDto> RecentSales,
     IReadOnlyList<PersonalActivityDto> RecentEvictions);
+
+public sealed record AgentPerformanceDto(
+    string UserId,
+    string DisplayName,
+    string? FullName,
+    string? AvatarUrl,
+    UserRole Role,
+    int Bookings,
+    decimal BookingAmount,
+    int ConvertedBookings,
+    int HousesSold,
+    decimal CommissionTaken,
+    decimal CommissionOwed,
+    int HousesEvicted,
+    int NoticesSent,
+    decimal ConversionRate,
+    decimal PerformanceScore);
+
+public sealed record AgentAnalyticsTotalsDto(
+    int Agents,
+    int Bookings,
+    decimal BookingAmount,
+    int HousesSold,
+    decimal CommissionTaken,
+    decimal CommissionOwed,
+    int HousesEvicted,
+    int NoticesSent);
+
+public sealed record AgentAnalyticsDto(
+    DateTime? From,
+    DateTime? To,
+    AgentAnalyticsTotalsDto Totals,
+    IReadOnlyList<AgentPerformanceDto> Agents);

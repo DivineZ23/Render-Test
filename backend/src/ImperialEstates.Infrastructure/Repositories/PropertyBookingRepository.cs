@@ -8,6 +8,10 @@ namespace ImperialEstates.Infrastructure.Repositories;
 
 public sealed class PropertyBookingRepository(MongoContext db) : IPropertyBookingRepository
 {
+    public async Task<IReadOnlyList<PropertyBooking>> GetAllAsync(CancellationToken ct) =>
+        await db.PropertyBookings.Find(x => !x.IsDeleted)
+            .SortByDescending(x => x.CreatedAt).ToListAsync(ct);
+
     public async Task<IReadOnlyList<PropertyBooking>> GetAllActiveAsync(CancellationToken ct) =>
         await db.PropertyBookings.Find(x => x.Status == BookingStatus.Active && !x.IsDeleted)
             .SortByDescending(x => x.CreatedAt).ToListAsync(ct);

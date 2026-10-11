@@ -28,7 +28,10 @@ export const ACCESS_SECTIONS: AccessSectionDefinition[] = [
   {
     key: 'performance',
     label: 'Performance',
-    resources: [{ key: 'analytics', label: 'Personal Analytics', tier: 'all' }],
+    resources: [
+      { key: 'analytics', label: 'Personal Analytics', tier: 'all' },
+      { key: 'agentAnalytics', label: 'Agent Analytics', tier: 'manager' },
+    ],
   },
   {
     key: 'finance',

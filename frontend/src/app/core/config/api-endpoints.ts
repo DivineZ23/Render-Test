@@ -27,6 +27,7 @@ export const API_ENDPOINTS = {
   auditLogs: '/audit-logs',
   dashboard: '/dashboard',
   personalStatistics: '/dashboard/personal',
+  agentAnalytics: '/dashboard/agents',
   uploads: '/uploads/images',
   teamAgents: '/team/agents',
   settingsTeam: '/settings/team',

@@ -51,6 +51,15 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'agent-analytics',
+        data: { accessKey: 'agentAnalytics' },
+        canActivate: [managerGuard, pageAccessGuard],
+        loadComponent: () =>
+          import('./features/analytics/agent-analytics.component').then(
+            (m) => m.AgentAnalyticsComponent,
+          ),
+      },
+      {
         path: 'commissions',
         data: { accessKey: 'commissions' },
         canActivate: [pageAccessGuard],

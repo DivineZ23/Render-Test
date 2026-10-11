@@ -35,6 +35,7 @@ public interface IPropertyRepository
 
 public interface IPropertyBookingRepository
 {
+    Task<IReadOnlyList<PropertyBooking>> GetAllAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<PropertyBooking>> GetAllActiveAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<PropertyBooking>> GetActiveByPropertyAsync(string propertyId, CancellationToken cancellationToken);
     Task<PropertyBooking?> GetByIdAsync(string id, CancellationToken cancellationToken);

@@ -8,6 +8,7 @@ import {
   CreateEnquiryRequest,
   CreateRecruitmentApplicationRequest,
   DashboardSummary,
+  AgentAnalytics,
   PersonalStatistics,
   Enquiry,
   EnquiryStatus,
@@ -192,6 +193,9 @@ export class DashboardService {
   }
   personal(): Observable<PersonalStatistics> {
     return this.api.get(API_ENDPOINTS.personalStatistics);
+  }
+  agents(from?: string, to?: string): Observable<AgentAnalytics> {
+    return this.api.get(API_ENDPOINTS.agentAnalytics, { from, to });
   }
 }
 @Injectable({ providedIn: 'root' })
