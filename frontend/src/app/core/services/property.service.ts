@@ -25,16 +25,16 @@ export class PropertyService {
   private readonly pendingBookingAnnouncementsState = signal(0);
   readonly pendingBookingAnnouncements = this.pendingBookingAnnouncementsState.asReadonly();
   available(query: PropertyQuery): Observable<PagedResult<PublicProperty>> {
-    return this.api.get(API_ENDPOINTS.properties.available, query);
+    return this.api.read(API_ENDPOINTS.properties.available, query);
   }
   featured(): Observable<PublicProperty[]> {
-    return this.api.get(API_ENDPOINTS.properties.featured);
+    return this.api.read(API_ENDPOINTS.properties.featured);
   }
   publicDetails(id: string): Observable<PublicProperty> {
-    return this.api.get(`${API_ENDPOINTS.properties.root}/${id}`);
+    return this.api.read(`${API_ENDPOINTS.properties.root}/${id}`);
   }
   all(query: PropertyQuery): Observable<PagedResult<Property>> {
-    return this.api.get(API_ENDPOINTS.properties.root, query);
+    return this.api.read(API_ENDPOINTS.properties.root, query);
   }
   details(id: string): Observable<Property> {
     return this.api.get(`${API_ENDPOINTS.properties.root}/${id}/manage`);
@@ -67,7 +67,7 @@ export class PropertyService {
     return this.api.get(`${API_ENDPOINTS.properties.root}/${id}/bookings`);
   }
   bookingGroups(): Observable<PropertyBookingGroup[]> {
-    return this.api.get(`${API_ENDPOINTS.properties.root}/bookings`);
+    return this.api.read(`${API_ENDPOINTS.properties.root}/bookings`);
   }
   refreshBookingAnnouncementCount(): Observable<BookingAnnouncementSummary> {
     return this.api
@@ -85,11 +85,7 @@ export class PropertyService {
         `${API_ENDPOINTS.properties.root}/${propertyId}/bookings/announcement`,
         { isPosted },
       )
-      .pipe(
-        switchMap((state) =>
-          this.refreshBookingAnnouncementCount().pipe(map(() => state)),
-        ),
-      );
+      .pipe(switchMap((state) => this.refreshBookingAnnouncementCount().pipe(map(() => state))));
   }
   createBooking(id: string, body: CreatePropertyBookingRequest): Observable<PropertyBooking> {
     return this.api.post(`${API_ENDPOINTS.properties.root}/${id}/bookings`, body);
@@ -104,7 +100,7 @@ export class PropertyService {
     return this.api.post(`${API_ENDPOINTS.properties.root}/${id}/evict`, request);
   }
   history(id: string): Observable<StatusHistory[]> {
-    return this.api.get(`${API_ENDPOINTS.properties.root}/${id}/history`);
+    return this.api.read(`${API_ENDPOINTS.properties.root}/${id}/history`);
   }
   delete(id: string): Observable<void> {
     return this.api.delete(`${API_ENDPOINTS.properties.root}/${id}`);

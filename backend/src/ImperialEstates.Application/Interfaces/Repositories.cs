@@ -19,6 +19,9 @@ public interface IBlockRepository
 
 public interface IPropertyRepository
 {
+    async Task<IReadOnlyList<EvictionPropertyLookup>> GetEvictionCandidatesAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+        (await (ids.Count == 0 ? GetAllAsync(ct) : GetByIdsAsync(ids, ct))).Select(value =>
+            new EvictionPropertyLookup(value.Id, value.PropertyId, value.PropertyName, value.Status, value.CurrentTenantId)).ToList();
     Task<PagedResult<Property>> QueryAsync(PropertyQuery query, bool publicOnly, CancellationToken cancellationToken);
     Task<Property?> GetByIdAsync(string id, CancellationToken cancellationToken);
     Task<IReadOnlyList<Property>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken cancellationToken);
@@ -79,6 +82,7 @@ public interface ITenantRepository
         return values;
     }
     Task<IReadOnlyList<Tenant>> GetByCidsAsync(IReadOnlyCollection<int> cids, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Tenant>> GetNoticeMappingsAsync(IReadOnlyCollection<int> cids, CancellationToken ct) => GetByCidsAsync(cids, ct);
     Task<IReadOnlyList<Tenant>> GetEvictedAsync(CancellationToken cancellationToken);
     Task CreateAsync(Tenant tenant, CancellationToken cancellationToken);
     Task UpdateAsync(Tenant tenant, CancellationToken cancellationToken);
@@ -86,6 +90,36 @@ public interface ITenantRepository
 
 public interface IRentSyncRepository
 {
+    async Task<RentRecordPage?> GetCurrentRecordsAsync(string status, int skip, int take, CancellationToken ct)
+    {
+        var value = await GetCurrentAsync(ct);
+        if (value is null) return null;
+        return new(new RentSyncSnapshot { Id = value.Id, UpdatedAt = value.UpdatedAt,
+                Records = value.Records.Where(row => row.Status == status).OrderBy(row => row.RowNumber).Skip(skip).Take(take).ToList() },
+            value.Records.Count, value.Records.Count(row => row.Status == "paid"),
+            value.Records.Count(row => row.Status == "overdue"), value.Records.Count(row => row.Status == "evictable"),
+            value.Records.Count(row => row.Status == "empty"), value.Records.Count(row => row.Status == status));
+    }
+    async Task<IReadOnlyList<NoticeHistoryRow>> GetNoticePageAsync(string status, DateTime asOf, int skip, int take, CancellationToken ct) =>
+        (await GetAllAsync(ct)).Where(snapshot => snapshot.UpdatedAt <= asOf).SelectMany(snapshot => snapshot.Records
+            .Where(row => row.Status == status && row.NoticeGenerated != false).OrderBy(row => row.RowNumber)
+            .Select(row => new NoticeHistoryRow(snapshot.Id, snapshot.UpdatedAt, row))).Skip(skip).Take(take).ToList();
+    async Task<IReadOnlyList<NoticeSnapshotCounts>> GetNoticeCountsAsync(string status, DateTime dayStart, DateTime dayEnd, CancellationToken ct) =>
+        (await GetAllAsync(ct)).Select(snapshot => new NoticeSnapshotCounts(snapshot.UpdatedAt,
+            snapshot.Records.Count(row => row.Status == status),
+            snapshot.Records.Count(row => row.Status == status && row.NoticeGenerated != false),
+            snapshot.Records.Count(row => row.Status == status && row.NoticeGenerated != false && !row.IsResolved),
+            snapshot.Records.Count(row => row.Status == status && row.NoticeGenerated != false && row.IsResolved &&
+                row.ResolvedAt >= dayStart && row.ResolvedAt < dayEnd))).ToList();
+    async IAsyncEnumerable<RentSyncSnapshot> ReadEvictionHistoryAsync(DateTime asOf, IReadOnlyCollection<string> propertyIds,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        foreach (var snapshot in await GetEvictionHistoryAsync(asOf, propertyIds, ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            yield return snapshot;
+        }
+    }
     Task<RentSyncSnapshot?> GetCurrentAsync(CancellationToken cancellationToken);
     async Task<decimal?> GetLatestIncomeAsync(CancellationToken ct) =>
         (await GetCurrentAsync(ct))?.Records.Sum(record => record.Income);

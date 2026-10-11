@@ -52,6 +52,10 @@ public sealed class TenantRepository(MongoContext db) : ITenantRepository
         var filter = Builders<Tenant>.Filter.Eq(x => x.IsDeleted, false) & Builders<Tenant>.Filter.In(x => x.Cid, cids.Select(cid => (int?)cid));
         return await db.Tenants.Find(filter).SortByDescending(x => x.CreatedAt).ToListAsync(ct);
     }
+    public async Task<IReadOnlyList<Tenant>> GetNoticeMappingsAsync(IReadOnlyCollection<int> cids, CancellationToken ct) =>
+        cids.Count == 0 ? [] : await db.Tenants.Find(x => !x.IsDeleted && x.Cid.HasValue && cids.Contains(x.Cid.Value))
+            .Project(x => new Tenant { Id = x.Id, Cid = x.Cid, DiscordId = x.DiscordId,
+                Status = x.Status, UpdatedAt = x.UpdatedAt }).ToListAsync(ct);
     public async Task<IReadOnlyList<Tenant>> GetEvictedAsync(CancellationToken ct) =>
         await db.Tenants.Find(x => !x.IsDeleted && x.Status == TenantStatus.Evicted)
             .SortByDescending(x => x.EndDate).ToListAsync(ct);

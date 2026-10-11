@@ -21,6 +21,8 @@ public sealed class RentSyncServiceTests
         }).ToArray();
         var propertyRepository = new PropertyRepository(values);
         var snapshots = new SnapshotRepository();
+        for (var index = 0; index < 200; index++)
+            await snapshots.SaveCurrentAsync(new RentSyncSnapshot { Records = [] }, default);
         await snapshots.SaveCurrentAsync(new RentSyncSnapshot
         {
             Records = values.Select((property, index) => new RentSyncRecord
@@ -41,6 +43,78 @@ public sealed class RentSyncServiceTests
         Assert.Equal(10, queue.Count(value => value.IsOnHold));
         Assert.Equal(1, propertyRepository.BatchReads);
         Assert.Equal(0, propertyRepository.SingleReads);
+        Assert.Equal(1, snapshots.StreamedSnapshots);
+        Assert.Equal(0, snapshots.FullHistoryReads);
+    }
+
+    [Fact]
+    public async Task Notice_feed_pages_only_generated_notices_but_keeps_whole_history_totals()
+    {
+        var snapshots = new SnapshotRepository();
+        var dayStart = DateTime.UtcNow.Date;
+        await snapshots.SaveCurrentAsync(new RentSyncSnapshot
+        {
+            Records = Enumerable.Range(1, 120).Select(index => new RentSyncRecord
+            {
+                RowNumber = index, Address = $"Home {index}", Status = "overdue", NoticeGenerated = true,
+                IsResolved = index <= 20, ResolvedAt = index <= 20 ? dayStart.AddHours(1) : null,
+            }).Concat([
+                new RentSyncRecord { RowNumber = 121, Status = "paid" },
+                new RentSyncRecord { RowNumber = 122, Status = "overdue", NoticeGenerated = false },
+            ]).ToList(),
+        }, default);
+        var service = CreateService(snapshots);
+        var first = await service.GetNoticeFeedAsync("overdue", 0, 50, null, default);
+        var totals = await service.GetNoticeSummaryAsync("overdue", dayStart, dayStart.AddDays(1), default);
+        Assert.Equal(50, first.Items.Count);
+        Assert.Equal(121, totals.CurrentTotal);
+        Assert.Equal(120, totals.TotalNotices);
+        Assert.Equal(100, totals.Pending);
+        Assert.Equal(20, totals.SentToday);
+        Assert.True(first.HasMore);
+        Assert.Equal(50, first.NextSkip);
+        // A newer import must not shift page offsets for an already opened history.
+        await snapshots.SaveCurrentAsync(new RentSyncSnapshot { Records = [new RentSyncRecord
+            { RowNumber = 1, Status = "overdue", NoticeGenerated = true }] }, default);
+        var last = await service.GetNoticeFeedAsync("overdue", 100, 50, first.AsOf, default);
+        Assert.Equal(20, last.Items.Count);
+        Assert.False(last.HasMore);
+        Assert.Equal(120, last.NextSkip);
+        Assert.All(last.Items, item => Assert.NotNull(item.Record.OverdueNotice));
+
+        await snapshots.DeleteAsync("snapshot-2", default);
+        var page = await service.GetCurrentRecordsAsync("overdue", 100, 50, default);
+        Assert.Equal(122, page.Snapshot.Total);
+        Assert.Equal(121, page.Snapshot.Overdue);
+        Assert.Equal(21, page.Snapshot.Records.Count);
+        Assert.False(page.HasMore);
+    }
+
+    [Theory]
+    [InlineData("paid")]
+    [InlineData("overdue")]
+    [InlineData("empty")]
+    public async Task Streaming_queue_stops_at_a_legacy_cycle_boundary(string status)
+    {
+        var snapshots = new SnapshotRepository();
+        await snapshots.SaveCurrentAsync(new RentSyncSnapshot { Records = [new RentSyncRecord
+        {
+            Address = "Marina Drive 8", Status = "evictable", NoticeGenerated = null,
+            IsResolved = true, ResolvedAt = DateTime.UtcNow.AddDays(-8), IsEvictionOnHold = true,
+        }] }, default);
+        await snapshots.SaveCurrentAsync(new RentSyncSnapshot { Records = [new RentSyncRecord
+        { Address = " marina  drive 8 ", Status = status }] }, default);
+        await snapshots.SaveCurrentAsync(new RentSyncSnapshot { Records = [new RentSyncRecord
+        { PropertyId = "property-1", Address = "Marina Drive 8", Status = "evictable", NoticeGenerated = false }] }, default);
+        var property = new Property { Id = "property-1", PropertyName = "Marina Drive 8" };
+        property.SetStatusForPersistence(PropertyStatus.Evictable);
+        property.SetTenantForPersistence("tenant-1");
+        var service = new RentSyncService(snapshots, new TenantRepository(), new PropertyRepository(property),
+            new LifecycleStore(), new StatusHistoryRepository(), new UserRepository(),
+            new GoogleSheetsSyncService(), new AuditRepository());
+        Assert.Empty(await service.GetEvictionQueueAsync(default));
+        Assert.Equal(2, snapshots.StreamedSnapshots);
+        Assert.Equal(0, snapshots.FullHistoryReads);
     }
 
     [Fact]
@@ -451,10 +525,26 @@ public sealed class RentSyncServiceTests
     private sealed class SnapshotRepository : IRentSyncRepository
     {
         private readonly List<RentSyncSnapshot> _snapshots = [];
+        public int StreamedSnapshots { get; private set; }
+        public int FullHistoryReads { get; private set; }
+        public async IAsyncEnumerable<RentSyncSnapshot> ReadEvictionHistoryAsync(DateTime asOf,
+            IReadOnlyCollection<string> propertyIds, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+        {
+            await Task.CompletedTask;
+            foreach (var snapshot in _snapshots.AsEnumerable().Reverse().Where(value => value.UpdatedAt <= asOf))
+            {
+                ct.ThrowIfCancellationRequested();
+                StreamedSnapshots++;
+                yield return snapshot;
+            }
+        }
         public Task<RentSyncSnapshot?> GetCurrentAsync(CancellationToken cancellationToken) => Task.FromResult(_snapshots.LastOrDefault());
         public Task<RentSyncSnapshot?> GetByIdAsync(string id, CancellationToken cancellationToken) => Task.FromResult(_snapshots.FirstOrDefault(x => x.Id == id));
-        public Task<IReadOnlyList<RentSyncSnapshot>> GetAllAsync(CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<RentSyncSnapshot>>(_snapshots.AsEnumerable().Reverse().ToList());
+        public Task<IReadOnlyList<RentSyncSnapshot>> GetAllAsync(CancellationToken cancellationToken)
+        {
+            FullHistoryReads++;
+            return Task.FromResult<IReadOnlyList<RentSyncSnapshot>>(_snapshots.AsEnumerable().Reverse().ToList());
+        }
         public Task SaveCurrentAsync(RentSyncSnapshot snapshot, CancellationToken cancellationToken)
         {
             snapshot.Id = $"snapshot-{_snapshots.Count + 1}";

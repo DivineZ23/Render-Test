@@ -1,5 +1,7 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { finalize } from 'rxjs';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
@@ -173,8 +175,8 @@ type LedgerFilter = 'outstanding' | 'received' | 'all';
               @if (editingSettlementId()) {
                 <button class="btn btn-secondary" type="button" (click)="resetSettlementForm()"><svg lucideX></svg>Cancel</button>
               }
-              <button class="btn btn-primary" type="submit" [disabled]="settlementForm.invalid || winningAgentIds().length === 0 || !preview() || saving()">
-                {{ saving() ? 'Saving…' : editingSettlementId() ? 'Save settlement' : 'Record settlement' }}
+              <button class="btn btn-primary" type="submit" [disabled]="settlementForm.invalid || winningAgentIds().length === 0 || !preview() || saving() || loadingSettlement()">
+                {{ loadingSettlement() ? 'Loading settlement…' : saving() ? 'Saving…' : editingSettlementId() ? 'Save settlement' : 'Record settlement' }}
               </button>
             </div>
           </form>
@@ -230,8 +232,8 @@ type LedgerFilter = 'outstanding' | 'received' | 'all';
                       <td>
                         @if (isSettlementLead(record)) {
                           <div class="row-actions">
-                            <button class="icon-action" type="button" aria-label="Edit settlement" [title]="settlementHasPaidPayouts(record.settlementId) ? 'Mark every payout unpaid before editing' : 'Edit settlement'" [disabled]="settlementHasPaidPayouts(record.settlementId)" (click)="editSettlement(record.settlementId)"><svg lucidePencil></svg></button>
-                            <button class="icon-action danger" type="button" aria-label="Delete settlement" [title]="settlementHasPaidPayouts(record.settlementId) ? 'Mark every payout unpaid before deleting' : 'Delete settlement'" [disabled]="settlementHasPaidPayouts(record.settlementId)" (click)="deleteSettlement(record.settlementId)"><svg lucideTrash2></svg></button>
+                            <button class="icon-action" type="button" aria-label="Edit settlement" [title]="settlementHasPaidPayouts(record.settlementId) ? 'Mark every payout unpaid before editing' : 'Edit settlement'" [disabled]="settlementHasPaidPayouts(record.settlementId) || loadingSettlement()" (click)="editSettlement(record.settlementId)"><svg lucidePencil></svg></button>
+                            <button class="icon-action danger" type="button" aria-label="Delete settlement" [title]="settlementHasPaidPayouts(record.settlementId) ? 'Mark every payout unpaid before deleting' : 'Delete settlement'" [disabled]="settlementHasPaidPayouts(record.settlementId) || loadingSettlement()" (click)="deleteSettlement(record.settlementId)"><svg lucideTrash2></svg></button>
                           </div>
                         }
                       </td>
@@ -268,6 +270,8 @@ export class CommissionsComponent {
   readonly overview = signal<CommissionOverview | null>(null);
   readonly filter = signal<LedgerFilter>('outstanding');
   readonly saving = signal(false);
+  readonly loadingSettlement = signal(false);
+  private readonly destroyRef = inject(DestroyRef);
   readonly preview = signal<AuctionCommissionCalculation | null>(null);
   readonly editingSettlementId = signal<string | null>(null);
   readonly winningAgentIds = signal<string[]>([]);
@@ -323,7 +327,7 @@ export class CommissionsComponent {
   }
 
   createSettlement() {
-    if (this.settlementForm.invalid || this.winningAgentIds().length === 0 || !this.preview()) return;
+    if (this.loadingSettlement() || this.settlementForm.invalid || this.winningAgentIds().length === 0 || !this.preview()) return;
     this.saving.set(true);
     const request = {
       ...this.settlementForm.getRawValue(),
@@ -356,8 +360,26 @@ export class CommissionsComponent {
   }
 
   editSettlement(settlementId: string) {
-    if (this.settlementHasPaidPayouts(settlementId)) return;
-    const records = this.settlementRecords(settlementId);
+    if (this.loadingSettlement() || this.saving()) return;
+    this.loadingSettlement.set(true);
+    this.service.overview(true).pipe(
+      finalize(() => this.loadingSettlement.set(false)),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      next: (value) => {
+        this.overview.set(value);
+        const records = value.records.filter((record) => record.settlementId === settlementId);
+        if (!records.length || records.some((record) => record.isPaid)) {
+          this.snackBar.open('This settlement changed. Please review the updated ledger.', 'Dismiss', { duration: 4000 });
+          return;
+        }
+        this.populateSettlementForm(settlementId, records);
+      },
+      error: () => this.snackBar.open('Could not load the current settlement. Please try again.', 'Dismiss', { duration: 4000 }),
+    });
+  }
+
+  private populateSettlementForm(settlementId: string, records: CommissionRecord[]) {
     if (!records.length) return;
     const settlement = records[0];
     this.editingSettlementId.set(settlementId);

@@ -9,6 +9,21 @@ namespace ImperialEstates.Api.Controllers;
 [ApiController, Route("api/v1/notices")]
 public sealed class NoticesController(RentSyncService service) : ControllerBase
 {
+    [Authorize(Policy = "ApprovedUser"), HttpGet("feed")]
+    public Task<NoticeFeedDto> Feed(CancellationToken ct, [FromQuery] string status = "evictable",
+        [FromQuery] int skip = 0, [FromQuery] int take = 50, [FromQuery] DateTime? asOf = null) =>
+        service.GetNoticeFeedAsync(status, skip, take, asOf, ct);
+
+    [Authorize(Policy = "ApprovedUser"), HttpGet("feed-summary")]
+    public Task<NoticeFeedSummaryDto> FeedSummary(CancellationToken ct, [FromQuery] string status = "evictable", [FromQuery] DateTime? dayStart = null,
+        [FromQuery] DateTime? dayEnd = null) =>
+        service.GetNoticeSummaryAsync(status, dayStart ?? DateTime.UtcNow.Date,
+            dayEnd ?? (dayStart ?? DateTime.UtcNow.Date).AddDays(1), ct);
+
+    [Authorize(Policy = "ApprovedUser"), HttpGet("records")]
+    public Task<RentRecordPageDto> Records(CancellationToken ct, [FromQuery] string status = "overdue",
+        [FromQuery] int skip = 0, [FromQuery] int take = 50) => service.GetCurrentRecordsAsync(status, skip, take, ct);
+
     [Authorize(Policy = "ApprovedUser"), HttpGet("snapshot")]
     public Task<RentSyncSnapshotDto> Snapshot(CancellationToken ct) => service.GetCurrentAsync(ct);
 
@@ -34,6 +49,10 @@ public sealed class NoticesController(RentSyncService service) : ControllerBase
     [Authorize(Policy = "ApprovedUser"), HttpPatch("snapshots/{snapshotId}/records/{rowNumber:int}/resolution")]
     public Task<RentSyncSnapshotDto> SetResolution(string snapshotId, int rowNumber, SetNoticeResolutionRequest request, CancellationToken ct) =>
         service.SetResolutionAsync(snapshotId, rowNumber, request.IsResolved, User.UserId(), ct);
+
+    [Authorize(Policy = "ApprovedUser"), HttpPatch("snapshots/{snapshotId}/records/{rowNumber:int}/resolution-record")]
+    public Task<RentSyncRecordDto> SetResolutionRecord(string snapshotId, int rowNumber, SetNoticeResolutionRequest request, CancellationToken ct) =>
+        service.SetResolutionRecordAsync(snapshotId, rowNumber, request.IsResolved, User.UserId(), ct);
 
     [Authorize(Policy = "Manager"), HttpPatch("eviction-queue/{snapshotId}/records/{rowNumber:int}/hold")]
     public async Task<IActionResult> SetEvictionHold(

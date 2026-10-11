@@ -4,6 +4,11 @@ public sealed record RentSyncRequest(string RawData);
 public sealed record SetNoticeResolutionRequest(bool IsResolved);
 public sealed record SetEvictionHoldRequest(bool IsOnHold);
 
+public sealed record NoticeFeedItemDto(string SnapshotId, DateTime SyncedAt, RentSyncRecordDto Record);
+public sealed record NoticeFeedDto(DateTime AsOf, IReadOnlyList<NoticeFeedItemDto> Items, bool HasMore, int NextSkip);
+public sealed record NoticeFeedSummaryDto(DateTime? SyncedAt, int CurrentTotal, int TotalNotices, int Pending, int SentToday);
+public sealed record RentRecordPageDto(RentSyncSnapshotDto Snapshot, bool HasMore, int NextSkip);
+
 public sealed record EvictionQueueItemDto(
     string PropertyId, int PropertyBusinessId, string PropertyName, string NoticeSnapshotId, int NoticeRowNumber,
     string? TenantName, int? Cid, string? Phone, string? DiscordId, decimal Rent,

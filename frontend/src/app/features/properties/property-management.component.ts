@@ -470,7 +470,10 @@ export class PropertyManagementComponent {
         }),
         takeUntilDestroyed(this.destroy),
       )
-      .subscribe((v) => this.result.set(v));
+      .subscribe((v) => {
+        this.result.set(v);
+        this.loading.set(false);
+      });
   }
   page(page: number) {
     this.filters.controls.page.setValue(page);

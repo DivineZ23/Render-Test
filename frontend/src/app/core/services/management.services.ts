@@ -17,6 +17,10 @@ import {
   RecruitmentSettings,
   RecruitmentStatus,
   RentSyncSnapshot,
+  RentSyncRecord,
+  NoticeFeed,
+  NoticeFeedSummary,
+  RentRecordPage,
   EvictionHistory,
   EvictionQueueItem,
   Tenant,
@@ -43,10 +47,10 @@ import {
 export class BlockService {
   private readonly api = inject(ApiService);
   public(): Observable<Block[]> {
-    return this.api.get(API_ENDPOINTS.blocks.public);
+    return this.api.read(API_ENDPOINTS.blocks.public);
   }
   all(): Observable<Block[]> {
-    return this.api.get(API_ENDPOINTS.blocks.root);
+    return this.api.get(API_ENDPOINTS.blocks.root); // Also supplies the block editor.
   }
   create(body: UpsertBlockRequest): Observable<Block> {
     return this.api.post(API_ENDPOINTS.blocks.root, body);
@@ -66,7 +70,7 @@ export class EnquiryService {
     return this.api.post(API_ENDPOINTS.enquiries, body);
   }
   all(page = 1, status?: EnquiryStatus): Observable<PagedResult<Enquiry>> {
-    return this.api.get(API_ENDPOINTS.enquiries, { page, pageSize: 20, status });
+    return this.api.get(API_ENDPOINTS.enquiries, { page, pageSize: 20, status }); // Inline editable notes.
   }
   update(
     id: string,
@@ -89,7 +93,7 @@ export class RecruitmentService {
     return this.api.put(API_ENDPOINTS.recruitmentSettings, { isEnabled });
   }
   all(status: RecruitmentStatus, page = 1): Observable<PagedResult<RecruitmentApplication>> {
-    return this.api.get(API_ENDPOINTS.recruitmentApplications, { page, pageSize: 50, status });
+    return this.api.read(API_ENDPOINTS.recruitmentApplications, { page, pageSize: 50, status });
   }
   review(
     id: string,
@@ -107,7 +111,7 @@ export class RecruitmentService {
 export class TeamService {
   private readonly api = inject(ApiService);
   agents(): Observable<AgentSummary[]> {
-    return this.api.get(API_ENDPOINTS.teamAgents);
+    return this.api.read(API_ENDPOINTS.teamAgents);
   }
 }
 
@@ -139,7 +143,7 @@ export class UserService {
   all(
     filters: { approval?: ApprovalStatus; access?: AccessStatus; role?: UserRole } = {},
   ): Observable<PagedResult<User>> {
-    return this.api.get(API_ENDPOINTS.users, { page: 1, pageSize: 100, ...filters });
+    return this.api.read(API_ENDPOINTS.users, { page: 1, pageSize: 100, ...filters });
   }
   action(
     id: string,
@@ -156,8 +160,10 @@ export class UserService {
 @Injectable({ providedIn: 'root' })
 export class CommissionService {
   private readonly api = inject(ApiService);
-  overview(): Observable<CommissionOverview> {
-    return this.api.get(API_ENDPOINTS.commissions);
+  overview(forEditing = false): Observable<CommissionOverview> {
+    return forEditing
+      ? this.api.get(API_ENDPOINTS.commissions)
+      : this.api.read(API_ENDPOINTS.commissions);
   }
   preview(
     finalAuctionPrice: number,
@@ -165,7 +171,7 @@ export class CommissionService {
     totalNumberOfAgents: number,
     winningAgentCount: number,
   ): Observable<AuctionCommissionCalculation> {
-    return this.api.post(`${API_ENDPOINTS.commissions}/preview`, {
+    return this.api.calculate(`${API_ENDPOINTS.commissions}/preview`, {
       finalAuctionPrice,
       basePrice,
       totalNumberOfAgents,
@@ -190,36 +196,63 @@ export class CommissionService {
 export class DashboardService {
   private readonly api = inject(ApiService);
   get(): Observable<DashboardSummary> {
-    return this.api.get(API_ENDPOINTS.dashboard);
+    return this.api.read(API_ENDPOINTS.dashboard);
   }
   personal(): Observable<PersonalStatistics> {
-    return this.api.get(API_ENDPOINTS.personalStatistics);
+    return this.api.read(API_ENDPOINTS.personalStatistics);
   }
   agents(from?: string, to?: string): Observable<AgentAnalytics> {
-    return this.api.get(API_ENDPOINTS.agentAnalytics, { from, to });
+    return this.api.read(API_ENDPOINTS.agentAnalytics, { from, to });
   }
   agent(id: string, from?: string, to?: string): Observable<AgentAnalyticsDetail> {
-    return this.api.get(`${API_ENDPOINTS.agentAnalytics}/${id}`, { from, to });
+    return this.api.read(`${API_ENDPOINTS.agentAnalytics}/${id}`, { from, to });
   }
 }
 @Injectable({ providedIn: 'root' })
 export class TenantService {
   private readonly api = inject(ApiService);
   all(): Observable<PagedResult<Tenant>> {
-    return this.api.get(API_ENDPOINTS.tenants, { page: 1, pageSize: 100 });
+    return this.api.read(API_ENDPOINTS.tenants, { page: 1, pageSize: 100 });
   }
   evictions(): Observable<EvictionHistory[]> {
-    return this.api.get(API_ENDPOINTS.evictions);
+    return this.api.read(API_ENDPOINTS.evictions);
   }
 }
 @Injectable({ providedIn: 'root' })
 export class NoticeService {
   private readonly api = inject(ApiService);
+  refresh(): void {
+    this.api.clearSavedData();
+  }
+  feed(status: 'overdue' | 'evictable', skip = 0, asOf?: string): Observable<NoticeFeed> {
+    // Only the first page is reusable; continuation pages use its pinned cutoff.
+    return skip === 0
+      ? this.api.read('/notices/feed', { status, skip, take: 50, asOf })
+      : this.api.get('/notices/feed', { status, skip, take: 50, asOf });
+  }
+  feedSummary(status: 'overdue' | 'evictable'): Observable<NoticeFeedSummary> {
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    return this.api.read('/notices/feed-summary', {
+      status,
+      dayStart: dayStart.toISOString(),
+      dayEnd: dayEnd.toISOString(),
+    });
+  }
+  records(status: 'paid' | 'overdue', skip = 0): Observable<RentRecordPage> {
+    return skip === 0
+      ? this.api.read('/notices/records', { status, skip, take: 50 })
+      : this.api.get('/notices/records', { status, skip, take: 50 });
+  }
   snapshot(): Observable<RentSyncSnapshot> {
     return this.api.get(API_ENDPOINTS.notices.snapshot);
   }
   snapshots(summaryOnly = false): Observable<RentSyncSnapshot[]> {
-    return this.api.get(API_ENDPOINTS.notices.snapshots, { summaryOnly });
+    return summaryOnly
+      ? this.api.read(API_ENDPOINTS.notices.snapshots, { summaryOnly })
+      : this.api.get(API_ENDPOINTS.notices.snapshots, { summaryOnly });
   }
   evictionQueue(): Observable<EvictionQueueItem[]> {
     return this.api.get(API_ENDPOINTS.notices.evictionQueue);
@@ -243,9 +276,9 @@ export class NoticeService {
     snapshotId: string,
     rowNumber: number,
     isResolved: boolean,
-  ): Observable<RentSyncSnapshot> {
+  ): Observable<RentSyncRecord> {
     return this.api.patch(
-      `${API_ENDPOINTS.notices.snapshots}/${snapshotId}/records/${rowNumber}/resolution`,
+      `${API_ENDPOINTS.notices.snapshots}/${snapshotId}/records/${rowNumber}/resolution-record`,
       { isResolved },
     );
   }
@@ -253,7 +286,10 @@ export class NoticeService {
 @Injectable({ providedIn: 'root' })
 export class AuditService {
   private api = inject(ApiService);
+  refresh(): void {
+    this.api.clearSavedData();
+  }
   all(query: AuditLogQuery = {}): Observable<PagedResult<AuditLog>> {
-    return this.api.get(API_ENDPOINTS.auditLogs, { page: 1, pageSize: 25, ...query });
+    return this.api.read(API_ENDPOINTS.auditLogs, { page: 1, pageSize: 25, ...query });
   }
 }

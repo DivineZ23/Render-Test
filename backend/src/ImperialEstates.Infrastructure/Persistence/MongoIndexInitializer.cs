@@ -68,6 +68,7 @@ public sealed class MongoIndexInitializer(MongoContext db)
         await db.Settings.Indexes.CreateOneAsync(new CreateIndexModel<ApplicationSetting>(Builders<ApplicationSetting>.IndexKeys.Ascending(x => x.Key), new() { Name = "ux_setting_key", Unique = true }), cancellationToken: cancellationToken);
         await db.RentSyncSnapshots.Indexes.CreateOneAsync(new CreateIndexModel<RentSyncSnapshot>(Builders<RentSyncSnapshot>.IndexKeys.Descending(x => x.UpdatedAt), new() { Name = "ix_rent_sync_updated" }), cancellationToken: cancellationToken);
         await db.RentSyncSnapshots.Indexes.CreateManyAsync([
+            new CreateIndexModel<RentSyncSnapshot>(Builders<RentSyncSnapshot>.IndexKeys.Ascending(x => x.IsDeleted).Descending(x => x.UpdatedAt).Descending(x => x.Id), new() { Name = "ix_rent_sync_history_order" }),
             new CreateIndexModel<RentSyncSnapshot>(Builders<RentSyncSnapshot>.IndexKeys.Ascending(x => x.IsDeleted).Descending(x => x.UpdatedAt), new() { Name = "ix_rent_sync_current" }),
             new CreateIndexModel<RentSyncSnapshot>(Builders<RentSyncSnapshot>.IndexKeys.Ascending(x => x.IsDeleted).Ascending("Records.ResolvedAt"), new() { Name = "ix_rent_sync_notice_date" })
         ], cancellationToken);

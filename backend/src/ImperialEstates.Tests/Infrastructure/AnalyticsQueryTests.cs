@@ -81,4 +81,31 @@ public sealed class AnalyticsQueryTests
         Assert.DoesNotContain("Income", query);
         Assert.DoesNotContain("\"Status\" : \"evictable\"", query);
     }
+
+    [Fact]
+    public void Notice_feed_filters_before_paging_and_does_not_return_whole_exports()
+    {
+        var repository = new RentSyncRepository(Context());
+        var query = repository.NoticePageQuery("overdue", DateTime.UtcNow, 50, 51).ToString()!;
+        Assert.Contains("$unwind", query);
+        Assert.Contains("$filter", query);
+        Assert.Contains("NoticeGenerated", query);
+        Assert.Contains("$skip", query);
+        Assert.Contains("$limit", query);
+        Assert.DoesNotContain("Expression not supported", query);
+        var counts = repository.NoticeCountsQuery("overdue", DateTime.UtcNow.Date, DateTime.UtcNow.Date.AddDays(1)).ToString()!;
+        Assert.Contains("$sum", counts);
+        Assert.DoesNotContain("Phone", counts);
+        Assert.DoesNotContain("Interior", counts);
+    }
+
+    [Fact]
+    public void Overdue_records_are_filtered_and_sliced_in_the_database()
+    {
+        var query = new RentSyncRepository(Context()).CurrentRecordsQuery("overdue", 50, 50).ToString()!;
+        Assert.Contains("$filter", query);
+        Assert.Contains("$slice", query);
+        Assert.Contains("overdue", query);
+        Assert.DoesNotContain("Expression not supported", query);
+    }
 }

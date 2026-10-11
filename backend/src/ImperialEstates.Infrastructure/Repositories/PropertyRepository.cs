@@ -11,6 +11,10 @@ namespace ImperialEstates.Infrastructure.Repositories;
 
 public sealed class PropertyRepository(MongoContext db) : IPropertyRepository
 {
+    public async Task<IReadOnlyList<EvictionPropertyLookup>> GetEvictionCandidatesAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+        await db.Properties.Find(value => !value.IsDeleted && (ids.Count == 0 || ids.Contains(value.Id)))
+            .Project(value => new EvictionPropertyLookup(value.Id, value.PropertyId, value.PropertyName,
+                value.Status, value.CurrentTenantId)).ToListAsync(ct);
     public async Task<PagedResult<Property>> QueryAsync(PropertyQuery query, bool publicOnly, CancellationToken ct)
     {
         var f = Builders<Property>.Filter;

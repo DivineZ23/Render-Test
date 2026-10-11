@@ -39,9 +39,50 @@ public sealed class RentSyncService(
     public Task<IReadOnlyList<RentSyncSnapshotDto>> GetSummariesAsync(CancellationToken ct) =>
         snapshots.GetSummariesAsync(ct);
 
+    public async Task<NoticeFeedDto> GetNoticeFeedAsync(string status, int skip, int take, DateTime? asOf, CancellationToken ct)
+    {
+        if (status is not ("overdue" or "evictable"))
+            throw new DomainRuleException("Choose overdue or eviction notices.", "INVALID_NOTICE_STATUS");
+        skip = Math.Clamp(skip, 0, 1_000_000);
+        take = Math.Clamp(take, 1, 100);
+        var cutoff = asOf ?? DateTime.UtcNow;
+        var rows = await snapshots.GetNoticePageAsync(status, cutoff, skip, take + 1, ct);
+        var page = rows.Take(take).ToList();
+        await RefreshRecordMappingsAsync(page.Select(item => item.Record).ToList(), ct);
+        return new(cutoff,
+            page.Select(item => new NoticeFeedItemDto(item.SnapshotId, item.SyncedAt,
+                MapRecord(item.Record, item.SyncedAt))).ToList(), rows.Count > take, skip + page.Count);
+    }
+
+    public async Task<NoticeFeedSummaryDto> GetNoticeSummaryAsync(string status, DateTime dayStart, DateTime dayEnd, CancellationToken ct)
+    {
+        if (status is not ("overdue" or "evictable"))
+            throw new DomainRuleException("Choose overdue or eviction notices.", "INVALID_NOTICE_STATUS");
+        if (dayEnd <= dayStart || dayEnd - dayStart > TimeSpan.FromHours(26))
+            throw new DomainRuleException("The notice day must be at most 26 hours.", "INVALID_NOTICE_DAY");
+        var counts = await snapshots.GetNoticeCountsAsync(status, dayStart, dayEnd, ct);
+        return new(counts.FirstOrDefault()?.SyncedAt, counts.FirstOrDefault()?.Current ?? 0,
+            counts.Sum(x => x.Total), counts.Sum(x => x.Pending), counts.Sum(x => x.SentToday));
+    }
+
+    public async Task<RentRecordPageDto> GetCurrentRecordsAsync(string status, int skip, int take, CancellationToken ct)
+    {
+        if (status is not ("paid" or "overdue" or "evictable" or "empty"))
+            throw new DomainRuleException("Choose a valid rent status.", "INVALID_RENT_STATUS");
+        skip = Math.Clamp(skip, 0, 1_000_000);
+        take = Math.Clamp(take, 1, 100);
+        var page = await snapshots.GetCurrentRecordsAsync(status, skip, take, ct);
+        if (page is null) return new(Map(null), false, 0);
+        await RefreshTenantMappingsAsync([page.Snapshot], ct);
+        var dto = Map(page.Snapshot) with { Total = page.Total, Active = page.Active, Overdue = page.Overdue,
+            Evictable = page.Evictable, Empty = page.Empty };
+        var next = skip + page.Snapshot.Records.Count;
+        return new(dto, next < page.Matching, next);
+    }
+
     public async Task<IReadOnlyList<EvictionQueueItemDto>> GetEvictionQueueAsync(CancellationToken ct)
     {
-        var currentSnapshot = await snapshots.GetCurrentAsync(ct);
+        var currentSnapshot = (await snapshots.GetCurrentRecordsAsync("evictable", 0, int.MaxValue, ct))?.Snapshot;
         if (currentSnapshot is null) return [];
 
         var candidates = currentSnapshot.Records.Where(record => record.Status == "evictable").ToList();
@@ -49,25 +90,10 @@ public sealed class RentSyncService(
         var hasLegacyRows = candidates.Any(record => string.IsNullOrWhiteSpace(record.PropertyId));
         var propertyIds = candidates.Where(record => !string.IsNullOrWhiteSpace(record.PropertyId))
             .Select(record => record.PropertyId!).Distinct().ToArray();
-        var historyTask = snapshots.GetEvictionHistoryAsync(
-            currentSnapshot.UpdatedAt, hasLegacyRows ? [] : propertyIds, ct);
-        var propertyTask = hasLegacyRows
-            ? properties.GetAllAsync(ct) // Legacy snapshots do not contain property IDs.
-            : properties.GetByIdsAsync(propertyIds, ct);
-        var mappingsTask = RefreshTenantMappingsAsync([currentSnapshot], ct);
-        await Task.WhenAll(propertyTask, mappingsTask, historyTask);
-        var byId = propertyTask.Result.ToDictionary(value => value.Id);
-        var byAddress = propertyTask.Result.ToLookup(value => NormalizeAddress(value.PropertyName));
-        var indexedHistory = historyTask.Result.Select(snapshot => new
-        {
-            Snapshot = snapshot,
-            ById = snapshot.Records.Where(record => !string.IsNullOrWhiteSpace(record.PropertyId))
-                .ToLookup(record => record.PropertyId!),
-            ByAddress = snapshot.Records.ToLookup(record => NormalizeAddress(record.Address)),
-        }).ToList();
-
-        var now = DateTime.UtcNow;
-        var result = new List<EvictionQueueItemDto>();
+        var propertyValues = await properties.GetEvictionCandidatesAsync(hasLegacyRows ? [] : propertyIds, ct);
+        var byId = propertyValues.ToDictionary(value => value.Id);
+        var byAddress = propertyValues.ToLookup(value => NormalizeAddress(value.PropertyName));
+        var remaining = new List<(RentSyncRecord Current, EvictionPropertyLookup Property, string Address)>();
         foreach (var current in candidates)
         {
             var property = !string.IsNullOrWhiteSpace(current.PropertyId)
@@ -76,34 +102,44 @@ public sealed class RentSyncService(
             if (property is null || property.Status != PropertyStatus.Evictable || property.CurrentTenantId is null)
                 continue;
 
-            RentSyncSnapshot? noticeSnapshot = null;
-            RentSyncRecord? notice = null;
-            foreach (var entry in indexedHistory)
+            remaining.Add((current, property, NormalizeAddress(current.Address)));
+        }
+        if (remaining.Count == 0) return [];
+
+        var sent = new List<(RentSyncRecord Current, EvictionPropertyLookup Property, string SnapshotId, RentSyncRecord Notice)>();
+        await foreach (var entry in snapshots.ReadEvictionHistoryAsync(
+            currentSnapshot.UpdatedAt, hasLegacyRows ? [] : remaining.Select(x => x.Property.Id).Distinct().ToArray(), ct))
+        {
+            var recordsById = entry.Records.Where(record => !string.IsNullOrWhiteSpace(record.PropertyId)).ToLookup(record => record.PropertyId!);
+            var recordsByAddress = entry.Records.ToLookup(record => NormalizeAddress(record.Address));
+            foreach (var candidate in remaining.ToArray())
             {
-                var matchingRecord = !string.IsNullOrWhiteSpace(current.PropertyId)
-                    ? entry.ById[current.PropertyId].FirstOrDefault() ??
-                        entry.ByAddress[NormalizeAddress(current.Address)]
+                var matchingRecord = !string.IsNullOrWhiteSpace(candidate.Current.PropertyId)
+                    ? recordsById[candidate.Current.PropertyId].FirstOrDefault() ??
+                        recordsByAddress[candidate.Address]
                             .FirstOrDefault(record => string.IsNullOrWhiteSpace(record.PropertyId))
-                    : entry.ByAddress[NormalizeAddress(current.Address)].FirstOrDefault();
+                    : recordsByAddress[candidate.Address].FirstOrDefault();
                 if (matchingRecord is null) continue;
-
-                // A paid/overdue/empty record closes the previous eviction cycle. Never
-                // reuse a sent notice (or its queue hold) from before that boundary.
-                if (matchingRecord.Status != "evictable") break;
-                if (matchingRecord.NoticeGenerated == false) continue;
-
-                noticeSnapshot = entry.Snapshot;
-                notice = matchingRecord;
-                break;
+                if (matchingRecord.Status == "evictable" && matchingRecord.NoticeGenerated == false) continue;
+                // A paid/overdue/empty boundary or the first generated notice settles this
+                // property's current cycle. Older rows must never supply a notice or hold.
+                remaining.Remove(candidate);
+                if (matchingRecord.Status == "evictable" && matchingRecord is { IsResolved: true, ResolvedAt: not null })
+                    sent.Add((candidate.Current, candidate.Property, entry.Id, matchingRecord));
             }
-            if (noticeSnapshot is null || notice is not { IsResolved: true, ResolvedAt: not null }) continue;
-
-            var eligibleAt = notice.ResolvedAt.Value.AddHours(24);
+            if (remaining.Count == 0) break;
+        }
+        await RefreshRecordMappingsAsync(sent.Select(item => item.Current).ToList(), ct);
+        var now = DateTime.UtcNow;
+        var result = new List<EvictionQueueItemDto>();
+        foreach (var (current, property, snapshotId, notice) in sent)
+        {
+            var eligibleAt = notice.ResolvedAt!.Value.AddHours(24);
             result.Add(new EvictionQueueItemDto(
                 property.Id,
                 property.PropertyId,
                 property.PropertyName,
-                noticeSnapshot.Id,
+                snapshotId,
                 notice.RowNumber,
                 current.RenterName,
                 current.Cid,
@@ -139,6 +175,21 @@ public sealed class RentSyncService(
     }
 
     public async Task<RentSyncSnapshotDto> SetResolutionAsync(string snapshotId, int rowNumber, bool isResolved, string actorId, CancellationToken ct)
+    {
+        var (snapshot, _) = await UpdateResolutionAsync(snapshotId, rowNumber, isResolved, actorId, ct);
+        await RefreshTenantMappingsAsync([snapshot], ct);
+        return Map(snapshot);
+    }
+
+    public async Task<RentSyncRecordDto> SetResolutionRecordAsync(string snapshotId, int rowNumber, bool isResolved, string actorId, CancellationToken ct)
+    {
+        var (snapshot, record) = await UpdateResolutionAsync(snapshotId, rowNumber, isResolved, actorId, ct);
+        await RefreshRecordMappingsAsync([record], ct);
+        return MapRecord(record, snapshot.UpdatedAt);
+    }
+
+    private async Task<(RentSyncSnapshot Snapshot, RentSyncRecord Record)> UpdateResolutionAsync(
+        string snapshotId, int rowNumber, bool isResolved, string actorId, CancellationToken ct)
     {
         var snapshot = await snapshots.GetByIdAsync(snapshotId, ct) ?? throw new KeyNotFoundException("Rent sync snapshot not found.");
         var record = snapshot.Records.FirstOrDefault(x => x.RowNumber == rowNumber)
@@ -176,8 +227,7 @@ public sealed class RentSyncService(
             PerformedByUserId = actorId,
             Metadata = new Dictionary<string, object?> { ["status"] = record.Status, ["address"] = record.Address },
         }, ct);
-        await RefreshTenantMappingsAsync([snapshot], ct);
-        return Map(snapshot);
+        return (snapshot, record);
     }
 
     public async Task SetEvictionHoldAsync(
@@ -722,12 +772,15 @@ public sealed class RentSyncService(
 
     private async Task RefreshTenantMappingsAsync(
         IReadOnlyList<RentSyncSnapshot> snapshotValues,
-        CancellationToken ct)
+        CancellationToken ct) =>
+        await RefreshRecordMappingsAsync(snapshotValues.SelectMany(value => value.Records).ToList(), ct);
+
+    private async Task RefreshRecordMappingsAsync(IReadOnlyList<RentSyncRecord> values, CancellationToken ct)
     {
-        var records = snapshotValues.SelectMany(value => value.Records).Where(value => value.Cid.HasValue).ToList();
+        var records = values.Where(value => value.Cid.HasValue).ToList();
         if (records.Count == 0) return;
 
-        var matchedTenants = await tenants.GetByCidsAsync(
+        var matchedTenants = await tenants.GetNoticeMappingsAsync(
             records.Select(value => value.Cid!.Value).Distinct().ToArray(), ct);
         var tenantsByCid = matchedTenants.Where(tenant => !string.IsNullOrWhiteSpace(tenant.DiscordId))
             .ToLookup(tenant => tenant.Cid);
@@ -749,14 +802,7 @@ public sealed class RentSyncService(
     {
         if (snapshot is null) return new(string.Empty, null, null, 0, 0, 0, 0, 0, 0,
             googleSheets.IsConfigured ? "ready" : "notConfigured", null, null, googleSheets.SpreadsheetUrl, Array.Empty<RentSyncRecordDto>());
-        var evictionDate = snapshot.UpdatedAt.Date.AddDays(7);
-        var records = snapshot.Records.Select(record => new RentSyncRecordDto(
-            record.RowNumber, record.Status, record.PaidThrough, record.Address, record.Interior,
-            record.Cid, record.RenterName, record.Phone, record.Income, record.Cost,
-            record.TenantId, record.DiscordId, !string.IsNullOrWhiteSpace(record.TenantId),
-            record.Status == "overdue" && record.NoticeGenerated != false ? OverdueNotice(record, evictionDate) : null,
-            record.Status == "evictable" && record.NoticeGenerated != false ? EvictionNotice(record) : null,
-            record.IsResolved, record.ResolvedByUserId, record.ResolvedByDisplayName, record.ResolvedAt)).ToList();
+        var records = snapshot.Records.Select(record => MapRecord(record, snapshot.UpdatedAt)).ToList();
         return new(
             snapshot.Id,
             snapshot.CreatedBy,
@@ -775,6 +821,14 @@ public sealed class RentSyncService(
             snapshot.GoogleSheetUrl,
             records);
     }
+
+    private static RentSyncRecordDto MapRecord(RentSyncRecord record, DateTime syncedAt) => new(
+        record.RowNumber, record.Status, record.PaidThrough, record.Address, record.Interior,
+        record.Cid, record.RenterName, record.Phone, record.Income, record.Cost,
+        record.TenantId, record.DiscordId, !string.IsNullOrWhiteSpace(record.TenantId),
+        record.Status == "overdue" && record.NoticeGenerated != false ? OverdueNotice(record, syncedAt.Date.AddDays(7)) : null,
+        record.Status == "evictable" && record.NoticeGenerated != false ? EvictionNotice(record) : null,
+        record.IsResolved, record.ResolvedByUserId, record.ResolvedByDisplayName, record.ResolvedAt);
 
     private static string OverdueNotice(RentSyncRecord record, DateTime evictionDate) =>
         $"⚠️ Overdue Payment Notice\n\nNOTICE OF PAYMENT AND EVICTION: {record.RenterName}, this is to inform you that your house {record.Address} is overdue due to unpaid dues. You have 1 Week to pay the rent to avoid eviction. Thank You State Real Estate. Date of Eviction: {evictionDate:dd MMMM yyyy}";

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { LucideArrowRight, LucideSearch, LucideUsersRound } from '@lucide/angular';
-import { catchError, finalize, of, startWith, Subject, switchMap } from 'rxjs';
+import { catchError, finalize, of, startWith, Subject, switchMap, tap } from 'rxjs';
 import { PropertyService } from '../../core/services/property.service';
 import { PropertyCardComponent } from '../../shared/components/property-card/property-card.component';
 
@@ -435,6 +435,7 @@ export class HomeComponent {
         this.loading.set(true);
         this.error.set(false);
         return this.properties.featured().pipe(
+          tap(() => this.loading.set(false)),
           catchError(() => {
             this.error.set(true);
             return of([]);

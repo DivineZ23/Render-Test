@@ -239,6 +239,29 @@ export interface AgentAnalyticsDetail {
 }
 
 export type RentSyncStatus = 'paid' | 'overdue' | 'evictable' | 'empty';
+export interface NoticeFeedItem {
+  snapshotId: string;
+  syncedAt: string;
+  record: RentSyncRecord;
+}
+export interface NoticeFeed {
+  asOf: string;
+  items: NoticeFeedItem[];
+  hasMore: boolean;
+  nextSkip: number;
+}
+export interface NoticeFeedSummary {
+  syncedAt?: string;
+  currentTotal: number;
+  totalNotices: number;
+  pending: number;
+  sentToday: number;
+}
+export interface RentRecordPage {
+  snapshot: RentSyncSnapshot;
+  hasMore: boolean;
+  nextSkip: number;
+}
 export interface RentSyncRecord {
   rowNumber: number;
   status: RentSyncStatus;

@@ -348,7 +348,10 @@ export class PropertiesListComponent {
         }),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((result) => this.result.set(result));
+      .subscribe((result) => {
+        this.result.set(result);
+        this.loading.set(false);
+      });
   }
   clear() {
     this.filters.reset({

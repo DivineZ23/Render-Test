@@ -29,6 +29,7 @@ export class AuthService {
     return (this.loading$ ??= this.api.get<User>(API_ENDPOINTS.auth.me).pipe(
       tap((user) => this.state.set(user)),
       catchError(() => {
+        this.api.clearSavedData();
         this.state.set(null);
         return of(null);
       }),
@@ -37,6 +38,7 @@ export class AuthService {
   }
 
   signIn(): void {
+    this.api.clearSavedData(true);
     window.location.assign(`${environment.apiBaseUrl}${API_ENDPOINTS.auth.signIn}`);
   }
   updateProfile(body: UpdateUserProfileRequest): Observable<User> {
@@ -45,12 +47,14 @@ export class AuthService {
       .pipe(tap((user) => this.state.set(user)));
   }
   logout(): void {
+    this.api.clearSavedData(true);
     this.api.post<null, void>(API_ENDPOINTS.auth.logout, null).subscribe(() => {
       this.state.set(null);
       window.location.assign('/');
     });
   }
   refresh(): void {
+    this.api.clearSavedData(true);
     this.state.set(undefined);
     this.loading$ = undefined;
     this.loadCurrentUser().subscribe();

@@ -794,11 +794,13 @@ export class AuditLogsComponent {
       )
       .subscribe((value) => {
         this.result.set(value);
+        this.loading.set(false);
         this.expandedId.set(null);
       });
   }
 
   refresh(): void {
+    this.auditService.refresh();
     this.page$.next(this.result().page || 1);
   }
   goToPage(page: number): void {

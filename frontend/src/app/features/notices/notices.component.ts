@@ -28,12 +28,14 @@ import {
   LucideTrash2,
   LucideUserMinus,
 } from '@lucide/angular';
-import { interval, map } from 'rxjs';
+import { finalize, interval, map, Subscription } from 'rxjs';
 import {
   EvictionHistory,
   EvictionQueueItem,
   RentSyncRecord,
   RentSyncSnapshot,
+  NoticeFeed,
+  NoticeFeedSummary,
 } from '../../core/models/management.models';
 import { NoticeService, TeamService, TenantService } from '../../core/services/management.services';
 import { AuthService } from '../../core/services/auth.service';
@@ -200,23 +202,40 @@ interface EvictionDayGroup {
       </section>
     }
 
-    @if (snapshot(); as data) {
-      @if (isNoticeView()) {
-        <div class="summary-grid notice-summary">
-          <div class="panel notice-total" [class.eviction]="mode() === 'evictionNotice'">
-            <b>{{ currentNoticeTotal() }}</b>
-            <span>{{ mode() === 'overdueNotice' ? 'Total overdue' : 'Total evictable' }}</span>
-          </div>
-          <div class="panel pending">
-            <b>{{ pendingNoticeCount() }}</b>
-            <span>Pending notices to be sent</span>
-          </div>
-          <div class="panel sent">
-            <b>{{ noticesSentToday() }}</b>
-            <span>Notices sent today</span>
-          </div>
+    @if (noticeSummary(); as feed) {
+      <div class="summary-grid notice-summary">
+        <div class="panel notice-total" [class.eviction]="mode() === 'evictionNotice'">
+          <b>{{ currentNoticeTotal() }}</b>
+          <span>{{ mode() === 'overdueNotice' ? 'Total overdue' : 'Total evictable' }}</span>
         </div>
-      } @else if (
+        <div class="panel pending">
+          <b>{{ pendingNoticeCount() }}</b>
+          <span>Pending notices to be sent</span>
+        </div>
+        <div class="panel sent">
+          <b>{{ noticesSentToday() }}</b>
+          <span>Notices sent today</span>
+        </div>
+      </div>
+      @if (feed.syncedAt) {
+        <p class="synced">
+          Last synced {{ feed.syncedAt | date: 'mediumDate' }} at
+          {{ feed.syncedAt | date: 'shortTime' }}
+        </p>
+      }
+    } @else if (isNoticeView() && !summaryError()) {
+      <p class="synced" aria-label="Loading notice totals">Loading notice totals…</p>
+    }
+    @if (isNoticeView() && summaryError()) {
+      <p class="message error">
+        Notice totals could not be loaded.
+        <button class="btn btn-secondary" type="button" (click)="loadNoticeSummary()">
+          Retry totals
+        </button>
+      </p>
+    }
+    @if (snapshot(); as data) {
+      @if (
         mode() !== 'sync' &&
         mode() !== 'evictionQueue' &&
         mode() !== 'evictionHistory' &&
@@ -256,6 +275,12 @@ interface EvictionDayGroup {
     }
 
     @if (mode() !== 'sync') {
+      @if (loadError()) {
+        <div class="panel queue-state" role="alert">
+          {{ loadError() }}
+          <button class="btn btn-secondary" type="button" (click)="retryLoad()">Retry</button>
+        </div>
+      }
       @if (mode() === 'syncedDataRecords') {
         @if (success()) {
           <p class="message success">{{ success() }}</p>
@@ -264,7 +289,10 @@ interface EvictionDayGroup {
           <p class="message error">{{ error() }}</p>
         }
       }
-      @if (mode() === 'evictionQueue') {
+      @if (pageLoading() && !noticeFeed() && !snapshot()) {
+        <div class="panel queue-state" role="status">Loading {{ title().toLowerCase() }}…</div>
+      } @else if (loadError() && !noticeFeed() && !snapshot() && mode() !== 'evictionQueue') {
+      } @else if (mode() === 'evictionQueue') {
         <div class="queue-summary">
           <div class="panel">
             <b>{{ evictionQueue().length }}</b
@@ -287,7 +315,7 @@ interface EvictionDayGroup {
           <div class="panel queue-state">Loading the eviction queue…</div>
         } @else if (evictionQueue().length) {
           <div class="queue-list">
-            @for (item of evictionQueue(); track item.propertyId) {
+            @for (item of evictionQueue().slice(0, queueLimit()); track item.propertyId) {
               <article
                 class="panel queue-card"
                 [class.ready]="isEvictionReady(item)"
@@ -361,7 +389,16 @@ interface EvictionDayGroup {
               </article>
             }
           </div>
-        } @else {
+          @if (queueLimit() < evictionQueue().length) {
+            <button
+              class="btn btn-secondary"
+              type="button"
+              (click)="queueLimit.set(queueLimit() + 50)"
+            >
+              Show more properties
+            </button>
+          }
+        } @else if (!loadError()) {
           <div class="panel">
             <app-empty-state
               title="No properties awaiting eviction"
@@ -510,12 +547,14 @@ interface EvictionDayGroup {
                     ><b>{{ group.syncedAt | date: 'fullDate' }}</b
                     ><small
                       >{{ group.records.length }}
-                      {{ group.records.length === 1 ? 'notice' : 'notices' }}</small
+                      {{ group.records.length === 1 ? 'notice loaded' : 'notices loaded' }}</small
                     ></span
                   ></span
                 >
                 @if (group.unresolved === 0) {
-                  <span class="group-status resolved"><svg lucideCircleCheck></svg>Complete</span>
+                  <span class="group-status resolved"
+                    ><svg lucideCircleCheck></svg>Loaded notices resolved</span
+                  >
                 } @else {
                   <span class="group-status">{{ group.unresolved }} unresolved</span>
                 }
@@ -556,7 +595,7 @@ interface EvictionDayGroup {
                           <input
                             type="checkbox"
                             [checked]="record.isResolved"
-                            [disabled]="resolvingRow() === recordKey(item.snapshotId, record)"
+                            [disabled]="!!resolvingRow() || pageLoading()"
                             (change)="setResolution(group, item, $any($event.target).checked)"
                           />
                           <span>Mark as resolved</span>
@@ -635,13 +674,44 @@ interface EvictionDayGroup {
       } @else {
         <div class="panel">
           <app-empty-state
-            [title]="snapshot()?.syncedAt ? 'No matching records' : 'No synced data yet'"
+            [title]="
+              isNoticeView()
+                ? 'No notices found'
+                : lastSyncedAt()
+                  ? 'No matching records'
+                  : 'No synced data yet'
+            "
             [message]="
-              snapshot()?.syncedAt
-                ? 'The latest import has no records for this view.'
-                : 'Paste the in-game export in Data Sync first.'
+              isNoticeView()
+                ? 'There are no generated notices for this status.'
+                : lastSyncedAt()
+                  ? 'There are no records for this view.'
+                  : 'Paste the in-game export in Data Sync first.'
             "
           />
+        </div>
+      }
+      @if (hasMore()) {
+        <div class="load-more">
+          @if (noticeFeed(); as feed) {
+            <span
+              >{{ feed.items.length }}
+              @if (noticeSummary(); as totals) {
+                of {{ totals.totalNotices }}
+              }
+              notices loaded</span
+            >
+          } @else {
+            <span>{{ filteredRecords().length }} records loaded</span>
+          }
+          <button
+            class="btn btn-secondary"
+            type="button"
+            [disabled]="pageLoading() || !!resolvingRow()"
+            (click)="loadMore()"
+          >
+            {{ pageLoading() ? 'Loading…' : 'Load more' }}
+          </button>
         </div>
       }
     } `,
@@ -649,6 +719,13 @@ interface EvictionDayGroup {
     `
       .page-title {
         margin-bottom: 24px;
+      }
+      .load-more {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        padding: 24px;
       }
       .page-title h1 {
         margin: 4px 0;
@@ -897,6 +974,21 @@ export class NoticesComponent {
   });
   readonly snapshot = signal<RentSyncSnapshot | null>(null);
   readonly snapshotList = signal<RentSyncSnapshot[]>([]);
+  readonly noticeFeed = signal<NoticeFeed | null>(null);
+  readonly noticeSummary = signal<NoticeFeedSummary | null>(null);
+  readonly summaryError = signal(false);
+  readonly lastSyncedAt = computed(
+    () => this.noticeSummary()?.syncedAt ?? this.snapshot()?.syncedAt,
+  );
+  readonly pageLoading = signal(false);
+  readonly loadError = signal('');
+  readonly hasMore = signal(false);
+  readonly queueLimit = signal(50);
+  private nextSkip = 0;
+  private pageLoadVersion = 0;
+  private pageRequest?: Subscription;
+  private summaryRequest?: Subscription;
+  private queueRequest?: Subscription;
   readonly evictionHistory = signal<EvictionHistory[]>([]);
   readonly evictionQueue = signal<EvictionQueueItem[]>([]);
   readonly queueLoading = signal(true);
@@ -987,56 +1079,22 @@ export class NoticesComponent {
     () => this.mode() === 'overdueNotice' || this.mode() === 'evictionNotice',
   );
   readonly isSyncedDataRecords = computed(() => this.mode() === 'syncedDataRecords');
-  readonly currentNoticeRecords = computed(() => {
-    if (!this.isNoticeView()) return [];
-    const status = this.mode() === 'overdueNotice' ? 'overdue' : 'evictable';
-    return (this.snapshot()?.records ?? []).filter((record) => record.status === status);
-  });
-  readonly currentNoticeTotal = computed(() => this.currentNoticeRecords().length);
-  readonly pendingNoticeCount = computed(() =>
-    this.snapshotList().reduce(
-      (total, snapshot) =>
-        total +
-        snapshot.records.filter((record) => this.isGeneratedNotice(record) && !record.isResolved)
-          .length,
-      0,
-    ),
-  );
-  readonly noticesSentToday = computed(() => {
-    if (!this.isNoticeView()) return 0;
-    const status = this.mode() === 'overdueNotice' ? 'overdue' : 'evictable';
-    const today = new Date();
-    return this.snapshotList().reduce(
-      (total, snapshot) =>
-        total +
-        snapshot.records.filter(
-          (record) =>
-            record.status === status &&
-            this.isGeneratedNotice(record) &&
-            record.isResolved &&
-            this.isSameLocalDay(record.resolvedAt, today),
-        ).length,
-      0,
-    );
-  });
+  readonly currentNoticeTotal = computed(() => this.noticeSummary()?.currentTotal ?? 0);
+  readonly pendingNoticeCount = computed(() => this.noticeSummary()?.pending ?? 0);
+  readonly noticesSentToday = computed(() => this.noticeSummary()?.sentToday ?? 0);
   readonly noticeGroups = computed<NoticeDayGroup[]>(() => {
     if (!this.isNoticeView()) return [];
-    const status = this.mode() === 'overdueNotice' ? 'overdue' : 'evictable';
     const groups = new Map<string, NoticeDayGroup>();
-    for (const snapshot of this.snapshotList()) {
-      const key = this.dayKey(snapshot.syncedAt, snapshot.id);
-      const records = snapshot.records.filter(
-        (record) => record.status === status && this.isGeneratedNotice(record),
-      );
-      if (!records.length) continue;
+    for (const item of this.noticeFeed()?.items ?? []) {
+      const key = this.dayKey(item.syncedAt, item.snapshotId);
       const group = groups.get(key) ?? {
         key,
-        syncedAt: snapshot.syncedAt,
+        syncedAt: item.syncedAt,
         records: [],
         unresolved: 0,
       };
-      group.records.push(...records.map((record) => ({ snapshotId: snapshot.id, record })));
-      group.unresolved += records.filter((record) => !record.isResolved).length;
+      group.records.push(item);
+      group.unresolved += item.record.isResolved ? 0 : 1;
       groups.set(key, group);
     }
     return Array.from(groups.values());
@@ -1064,12 +1122,28 @@ export class NoticesComponent {
   );
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const mode = this.mode();
+      onCleanup(() => {
+        this.pageLoadVersion++;
+        this.pageRequest?.unsubscribe();
+        this.summaryRequest?.unsubscribe();
+        this.queueRequest?.unsubscribe();
+      });
       untracked(() => {
+        this.snapshot.set(null);
+        this.noticeFeed.set(null);
+        this.noticeSummary.set(null);
+        this.summaryError.set(false);
+        this.hasMore.set(false);
+        this.loadError.set('');
+        this.pageLoading.set(false);
+        this.nextSkip = 0;
         if (mode === 'evictionQueue') this.loadEvictionQueue();
         else if (mode === 'evictionHistory') this.loadEvictionHistory();
-        else if (this.isNoticeView() || mode === 'syncedDataRecords') {
+        else if (this.isNoticeView()) this.loadNoticeFeed();
+        else if (mode === 'overdueList' || mode === 'activeList') this.loadRecords();
+        else if (mode === 'syncedDataRecords') {
           this.loadSnapshots();
           if (mode === 'syncedDataRecords')
             this.teamService
@@ -1298,14 +1372,48 @@ export class NoticesComponent {
   setResolution(group: NoticeDayGroup, item: NoticeRecordItem, isResolved: boolean) {
     const { snapshotId, record } = item;
     const key = this.recordKey(snapshotId, record);
-    if (this.resolvingRow()) return;
+    if (this.resolvingRow() || this.pageLoading()) return;
+    const mode = this.mode();
+    this.summaryRequest?.unsubscribe();
     this.resolvingRow.set(key);
     this.notices.setResolution(snapshotId, record.rowNumber, isResolved).subscribe({
-      next: (updated) => {
-        this.snapshotList.update((values) =>
-          values.map((value) => (value.id === updated.id ? updated : value)),
+      next: (changed) => {
+        if (this.mode() !== mode) {
+          this.resolvingRow.set(null);
+          return;
+        }
+        const oldSentToday =
+          record.isResolved && this.isSameLocalDay(record.resolvedAt, new Date());
+        const newSentToday =
+          changed.isResolved && this.isSameLocalDay(changed.resolvedAt, new Date());
+        this.noticeSummary.update((totals) =>
+          totals
+            ? {
+                ...totals,
+                pending: totals.pending + Number(record.isResolved) - Number(changed.isResolved),
+                sentToday: totals.sentToday + Number(newSentToday) - Number(oldSentToday),
+              }
+            : null,
         );
-        if (this.snapshot()?.id === updated.id) this.snapshot.set(updated);
+        if (!this.noticeSummary()) this.loadNoticeSummary();
+        this.noticeFeed.update((feed) => {
+          if (
+            !feed ||
+            !feed.items.some(
+              (value) =>
+                value.snapshotId === snapshotId && value.record.rowNumber === record.rowNumber,
+            )
+          )
+            return feed;
+          return {
+            ...feed,
+            items: feed.items.map((value) =>
+              value.snapshotId === snapshotId && value.record.rowNumber === record.rowNumber
+                ? { ...value, record: changed }
+                : value,
+            ),
+          };
+        });
         const unresolved =
           this.noticeGroups().find((value) => value.key === group.key)?.unresolved ?? 0;
         this.expandedDays.update((values) => ({ ...values, [group.key]: unresolved > 0 }));
@@ -1313,6 +1421,7 @@ export class NoticesComponent {
         this.resolvingRow.set(null);
       },
       error: () => {
+        if (this.mode() === mode && !this.noticeSummary()) this.loadNoticeSummary();
         this.snackBar.open('The notice resolution could not be updated.', 'Dismiss', {
           duration: 4000,
           panelClass: ['error-toast'],
@@ -1342,8 +1451,10 @@ export class NoticesComponent {
 
   private loadEvictionQueue() {
     if (this.mode() !== 'evictionQueue') return;
+    this.queueRequest?.unsubscribe();
+    this.loadError.set('');
     this.queueLoading.set(true);
-    this.notices
+    this.queueRequest = this.notices
       .evictionQueue()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -1352,14 +1463,15 @@ export class NoticesComponent {
           this.queueLoading.set(false);
         },
         error: () => {
-          this.evictionQueue.set([]);
+          this.loadError.set('The eviction queue could not be loaded.');
           this.queueLoading.set(false);
         },
       });
   }
 
   private loadCurrentSnapshot() {
-    this.notices
+    this.pageRequest?.unsubscribe();
+    this.pageRequest = this.notices
       .snapshot()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -1380,21 +1492,120 @@ export class NoticesComponent {
   }
 
   private loadSnapshots() {
-    if (!this.isNoticeView() && !this.isSyncedDataRecords()) return;
-    this.notices
-      .snapshots(this.isSyncedDataRecords())
+    if (!this.isSyncedDataRecords()) return;
+    this.pageRequest?.unsubscribe();
+    this.pageRequest = this.notices
+      .snapshots(true)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (snapshots) => {
           this.snapshotList.set(snapshots);
-          if (this.isNoticeView()) this.snapshot.set(snapshots[0] ?? null);
-          const defaults = { ...this.expandedDays() };
+        },
+        error: () => this.snapshotList.set([]),
+      });
+  }
+
+  loadMore() {
+    if (this.pageLoading() || this.resolvingRow() || !this.hasMore()) return;
+    if (this.isNoticeView()) this.loadNoticeFeed(true);
+    else this.loadRecords(true);
+  }
+
+  retryLoad() {
+    if (this.mode() === 'evictionQueue') this.loadEvictionQueue();
+    else if (this.isNoticeView()) this.loadNoticeFeed(!!this.noticeFeed());
+    else this.loadRecords(!!this.snapshot());
+  }
+
+  private loadNoticeFeed(append = false) {
+    const version = ++this.pageLoadVersion;
+    this.pageRequest?.unsubscribe();
+    this.pageLoading.set(true);
+    this.loadError.set('');
+    if (!append) this.loadNoticeSummary();
+    this.pageRequest = this.notices
+      .feed(
+        this.mode() === 'overdueNotice' ? 'overdue' : 'evictable',
+        append ? this.nextSkip : 0,
+        append ? this.noticeFeed()?.asOf : undefined,
+      )
+      .pipe(
+        finalize(() => {
+          if (version === this.pageLoadVersion) this.pageLoading.set(false);
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (page) => {
+          const previous = append ? (this.noticeFeed()?.items ?? []) : [];
+          const items = new Map(
+            previous.map((item) => [this.recordKey(item.snapshotId, item.record), item]),
+          );
+          for (const item of page.items)
+            items.set(this.recordKey(item.snapshotId, item.record), item);
+          this.noticeFeed.set({ ...page, items: [...items.values()] });
+          this.hasMore.set(page.hasMore);
+          this.nextSkip = page.nextSkip;
+          const defaults: Record<string, boolean> = append ? { ...this.expandedDays() } : {};
           for (const group of this.noticeGroups())
             if (defaults[group.key] === undefined) defaults[group.key] = group.unresolved > 0;
           this.expandedDays.set(defaults);
         },
-        error: () => this.snapshotList.set([]),
+        error: () => {
+          this.loadError.set('Notices could not be loaded.');
+          this.pageLoading.set(false);
+        },
       });
+  }
+
+  loadNoticeSummary() {
+    this.summaryRequest?.unsubscribe();
+    this.summaryError.set(false);
+    this.summaryRequest = this.notices
+      .feedSummary(this.mode() === 'overdueNotice' ? 'overdue' : 'evictable')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (totals) => this.noticeSummary.set(totals),
+        error: () => this.summaryError.set(true),
+      });
+  }
+
+  private loadRecords(append = false) {
+    const version = ++this.pageLoadVersion;
+    this.pageRequest?.unsubscribe();
+    this.pageLoading.set(true);
+    this.loadError.set('');
+    const request = this.notices
+      .records(this.mode() === 'activeList' ? 'paid' : 'overdue', append ? this.nextSkip : 0)
+      .pipe(
+        finalize(() => {
+          if (version === this.pageLoadVersion) this.pageLoading.set(false);
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (page) => {
+          // A new sync between pages changes row numbers: reload instead of mixing exports.
+          if (append && this.snapshot()?.id !== page.snapshot.id) {
+            this.notices.refresh();
+            this.loadRecords();
+            return;
+          }
+          const previous = append ? (this.snapshot()?.records ?? []) : [];
+          const records = new Map(previous.map((record) => [record.rowNumber, record]));
+          for (const record of page.snapshot.records) records.set(record.rowNumber, record);
+          this.snapshot.set({ ...page.snapshot, records: [...records.values()] });
+          this.hasMore.set(page.hasMore);
+          this.nextSkip = page.nextSkip;
+        },
+        error: () => {
+          this.loadError.set('Property records could not be loaded.');
+          this.pageLoading.set(false);
+        },
+      });
+    // A synchronous saved page can trigger a replacement read with a newer snapshot.
+    if (version === this.pageLoadVersion) this.pageRequest = request;
+    else request.unsubscribe();
   }
 
   private dayKey(value: string | undefined, fallback: string) {
