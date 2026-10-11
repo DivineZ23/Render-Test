@@ -137,27 +137,32 @@ public sealed class CommissionService(
     {
         var actor = await GetUserAsync(actorId, ct);
         var canManage = actor.Role is UserRole.Manager or UserRole.Owner;
-        var records = canManage
-            ? await commissions.GetAllAsync(ct)
-            : await commissions.GetByAgentAsync(actorId, ct);
+        var recordsTask = canManage
+            ? commissions.GetAllAsync(ct)
+            : commissions.GetByAgentAsync(actorId, ct);
 
         var eligibleUsers = new List<User>();
         if (canManage)
         {
-            eligibleUsers.AddRange((await users.QueryAsync(1, 100, ApprovalStatus.Approved, AccessStatus.Active, UserRole.Agent, ct)).Items);
-            eligibleUsers.AddRange((await users.QueryAsync(1, 100, ApprovalStatus.Approved, AccessStatus.Active, UserRole.SeniorAgent, ct)).Items);
+            var agentsTask = GetEligibleUsersAsync(UserRole.Agent, ct);
+            var seniorsTask = GetEligibleUsersAsync(UserRole.SeniorAgent, ct);
+            await Task.WhenAll(agentsTask, seniorsTask, recordsTask);
+            eligibleUsers.AddRange(agentsTask.Result);
+            eligibleUsers.AddRange(seniorsTask.Result);
         }
         else if (actor.Role is UserRole.Agent or UserRole.SeniorAgent)
         {
             eligibleUsers.Add(actor);
         }
 
+        var records = await recordsTask;
+        var byAgent = records.ToLookup(value => value.AgentUserId);
         var summaries = eligibleUsers
             .GroupBy(x => x.Id)
             .Select(group =>
             {
                 var user = group.First();
-                var agentRecords = records.Where(x => x.AgentUserId == user.Id).ToList();
+                var agentRecords = byAgent[user.Id].ToList();
                 return new AgentCommissionSummaryDto(
                     user.Id,
                     user.DisplayName,
@@ -177,6 +182,18 @@ public sealed class CommissionService(
             records.Select(ToDto).ToList(),
             records.Where(x => !x.IsPaid).Sum(x => x.CommissionAmount),
             records.Where(x => x.IsPaid).Sum(x => x.CommissionAmount));
+    }
+
+    private async Task<IReadOnlyList<User>> GetEligibleUsersAsync(UserRole role, CancellationToken ct)
+    {
+        var result = new List<User>();
+        var page = 1;
+        while (true)
+        {
+            var values = await users.QueryAsync(page++, 100, ApprovalStatus.Approved, AccessStatus.Active, role, ct);
+            result.AddRange(values.Items);
+            if (!values.HasNextPage) return result;
+        }
     }
 
     public async Task<CommissionRecordDto> SetPaidAsync(

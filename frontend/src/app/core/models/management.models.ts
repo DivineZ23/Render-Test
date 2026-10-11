@@ -146,7 +146,7 @@ export interface AgentPerformance {
   displayName: string;
   fullName?: string;
   avatarUrl?: string;
-  role: 'agent' | 'seniorAgent';
+  role: 'agent' | 'seniorAgent' | 'manager';
   bookings: number;
   bookingAmount: number;
   convertedBookings: number;
@@ -175,6 +175,67 @@ export interface AgentAnalytics {
   to?: string;
   totals: AgentAnalyticsTotals;
   agents: AgentPerformance[];
+}
+
+export interface AgentBookingActivity {
+  id: string;
+  propertyId: string;
+  propertyName: string;
+  clientName: string;
+  bookingAmount: number;
+  monthlyRent: number;
+  status: 'active' | 'cancelled' | 'converted';
+  createdAt: string;
+}
+
+export interface AgentSaleActivity {
+  id: string;
+  propertyId: string;
+  propertyName: string;
+  tenantName: string;
+  monthlyRent: number;
+  securityDeposit: number;
+  soldAt: string;
+}
+
+export interface AgentCommissionActivity {
+  id: string;
+  auctionReference: string;
+  amount: number;
+  isPaid: boolean;
+  isWinningAgent: boolean;
+  createdAt: string;
+  paidAt?: string;
+}
+
+export interface AgentEvictionActivity {
+  id: string;
+  propertyId: string;
+  propertyName: string;
+  tenantName: string;
+  reason: string;
+  evictedAt: string;
+}
+
+export interface AgentNoticeActivity {
+  id: string;
+  address: string;
+  status: 'overdue' | 'evictable';
+  renterName?: string;
+  cid?: number;
+  rent: number;
+  sentAt: string;
+}
+
+export interface AgentAnalyticsDetail {
+  from?: string;
+  to?: string;
+  summary: AgentPerformance;
+  bookings: AgentBookingActivity[];
+  sales: AgentSaleActivity[];
+  commissions: AgentCommissionActivity[];
+  evictions: AgentEvictionActivity[];
+  notices: AgentNoticeActivity[];
 }
 
 export type RentSyncStatus = 'paid' | 'overdue' | 'evictable' | 'empty';

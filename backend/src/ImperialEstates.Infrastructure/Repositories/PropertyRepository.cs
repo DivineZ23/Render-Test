@@ -73,6 +73,11 @@ public sealed class PropertyRepository(MongoContext db) : IPropertyRepository
     }
     public async Task<IReadOnlyList<Property>> GetAllAsync(CancellationToken ct) =>
         await db.Properties.Find(x => !x.IsDeleted).ToListAsync(ct);
+    public async Task<IReadOnlyList<PropertyPortfolioItem>> GetPortfolioAsync(CancellationToken ct) =>
+        await PortfolioQuery().ToListAsync(ct);
+    internal IFindFluent<Property, PropertyPortfolioItem> PortfolioQuery() =>
+        db.Properties.Find(x => !x.IsDeleted)
+            .Project(x => new PropertyPortfolioItem(x.BlockId, x.Type, x.Rent, x.Status, x.CurrentTenantId));
     public async Task<IReadOnlyList<Property>> GetFeaturedAsync(int limit, CancellationToken ct) => await db.Properties.Find(x => !x.IsDeleted && x.IsActive && x.IsFeatured && x.Status == PropertyStatus.Available).SortByDescending(x => x.CreatedAt).Limit(limit).ToListAsync(ct);
     public Task<long> CountByBlockAsync(string blockId, CancellationToken ct) => db.Properties.CountDocumentsAsync(x => x.BlockId == blockId && !x.IsDeleted, cancellationToken: ct);
     public Task<long> CountByStatusAsync(PropertyStatus? status, CancellationToken ct)

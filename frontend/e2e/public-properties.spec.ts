@@ -65,7 +65,7 @@ test('visitor submits an enquiry', async ({ page }) => {
   );
   await page.goto('/properties/p1');
   await page.getByLabel('Full name').fill('Jamie Reed');
-  await page.getByLabel('Phone number').fill('+1 555 0123');
+  await page.getByLabel('Phone number').fill('555-0123');
   await page.getByRole('button', { name: 'Send enquiry' }).click();
   await expect(page.getByText('Thank you.')).toBeVisible();
 });

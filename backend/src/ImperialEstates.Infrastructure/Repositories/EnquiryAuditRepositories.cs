@@ -22,6 +22,8 @@ public sealed class EnquiryRepository(MongoContext db) : IEnquiryRepository
         return new(itemsTask.Result, page, pageSize, totalTask.Result);
     }
     public Task<Enquiry?> GetByIdAsync(string id, CancellationToken ct) => db.Enquiries.Find(x => x.Id == id && !x.IsDeleted).FirstOrDefaultAsync(ct)!;
+    public async Task<IReadOnlyList<Enquiry>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+        ids.Count == 0 ? [] : await db.Enquiries.Find(x => ids.Contains(x.Id) && !x.IsDeleted).ToListAsync(ct);
     public Task<long> CountPendingAsync(CancellationToken ct) => db.Enquiries.CountDocumentsAsync(x => !x.IsDeleted && (x.Status == EnquiryStatus.New || x.Status == EnquiryStatus.Contacted), cancellationToken: ct);
     public Task CreateAsync(Enquiry value, CancellationToken ct) { RepositoryHelpers.PrepareForInsert(value); return db.Enquiries.InsertOneAsync(value, cancellationToken: ct); }
     public Task UpdateAsync(Enquiry value, CancellationToken ct) => RepositoryHelpers.ReplaceAsync(db.Enquiries, value, ct);

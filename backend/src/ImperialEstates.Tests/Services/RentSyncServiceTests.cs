@@ -10,6 +10,40 @@ namespace ImperialEstates.Tests.Services;
 public sealed class RentSyncServiceTests
 {
     [Fact]
+    public async Task Eviction_queue_batches_property_reads_for_large_queues_and_preserves_holds()
+    {
+        var values = Enumerable.Range(1, 100).Select(index =>
+        {
+            var property = new Property { Id = $"property-{index}", PropertyId = index, PropertyName = $"Home {index}" };
+            property.SetTenantForPersistence($"tenant-{index}");
+            property.SetStatusForPersistence(PropertyStatus.Evictable);
+            return property;
+        }).ToArray();
+        var propertyRepository = new PropertyRepository(values);
+        var snapshots = new SnapshotRepository();
+        await snapshots.SaveCurrentAsync(new RentSyncSnapshot
+        {
+            Records = values.Select((property, index) => new RentSyncRecord
+            {
+                PropertyId = property.Id, Address = property.PropertyName, RowNumber = index + 1,
+                Status = "evictable", NoticeGenerated = true, IsResolved = true,
+                ResolvedAt = DateTime.UtcNow.AddHours(-26), IsEvictionOnHold = index % 10 == 0,
+            }).ToList(),
+        }, default);
+        var service = new RentSyncService(snapshots, new TenantRepository(), propertyRepository,
+            new LifecycleStore(), new StatusHistoryRepository(), new UserRepository(),
+            new GoogleSheetsSyncService(), new AuditRepository());
+
+        var queue = await service.GetEvictionQueueAsync(default);
+
+        Assert.Equal(100, queue.Count);
+        Assert.Equal(90, queue.Count(value => value.IsReady));
+        Assert.Equal(10, queue.Count(value => value.IsOnHold));
+        Assert.Equal(1, propertyRepository.BatchReads);
+        Assert.Equal(0, propertyRepository.SingleReads);
+    }
+
+    [Fact]
     public async Task Sync_parses_unquoted_currency_and_maps_discord_id_by_cid()
     {
         var snapshots = new SnapshotRepository();
@@ -468,11 +502,21 @@ public sealed class RentSyncServiceTests
 
     private sealed class PropertyRepository(params Property[] values) : IPropertyRepository
     {
-        public Task<Property?> GetByIdAsync(string id, CancellationToken ct) => Task.FromResult(values.FirstOrDefault(x => x.Id == id));
+        public int BatchReads { get; private set; }
+        public int SingleReads { get; private set; }
+        public Task<Property?> GetByIdAsync(string id, CancellationToken ct)
+        {
+            SingleReads++;
+            return Task.FromResult(values.FirstOrDefault(x => x.Id == id));
+        }
         public Task<Property?> GetByNameAsync(string name, CancellationToken ct) => Task.FromResult(values.FirstOrDefault(x => x.PropertyName.Equals(name, StringComparison.OrdinalIgnoreCase)));
         public Task UpdateAsync(Property property, CancellationToken ct) => Task.CompletedTask;
         public Task<PagedResult<Property>> QueryAsync(PropertyQuery query, bool publicOnly, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlyList<Property>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Property>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct)
+        {
+            BatchReads++;
+            return Task.FromResult<IReadOnlyList<Property>>(values.Where(value => ids.Contains(value.Id)).ToList());
+        }
         public Task<Property?> GetByBusinessIdAsync(int propertyId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<Property>> GetAllAsync(CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<Property>>(values);

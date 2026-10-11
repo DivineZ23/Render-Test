@@ -36,28 +36,55 @@ public sealed class RentSyncService(
         return values.Select(Map).ToList();
     }
 
+    public Task<IReadOnlyList<RentSyncSnapshotDto>> GetSummariesAsync(CancellationToken ct) =>
+        snapshots.GetSummariesAsync(ct);
+
     public async Task<IReadOnlyList<EvictionQueueItemDto>> GetEvictionQueueAsync(CancellationToken ct)
     {
-        var allSnapshots = await snapshots.GetAllAsync(ct);
-        await RefreshTenantMappingsAsync(allSnapshots, ct);
-        var currentSnapshot = allSnapshots.FirstOrDefault();
+        var currentSnapshot = await snapshots.GetCurrentAsync(ct);
         if (currentSnapshot is null) return [];
+
+        var candidates = currentSnapshot.Records.Where(record => record.Status == "evictable").ToList();
+        if (candidates.Count == 0) return [];
+        var hasLegacyRows = candidates.Any(record => string.IsNullOrWhiteSpace(record.PropertyId));
+        var propertyIds = candidates.Where(record => !string.IsNullOrWhiteSpace(record.PropertyId))
+            .Select(record => record.PropertyId!).Distinct().ToArray();
+        var historyTask = snapshots.GetEvictionHistoryAsync(
+            currentSnapshot.UpdatedAt, hasLegacyRows ? [] : propertyIds, ct);
+        var propertyTask = hasLegacyRows
+            ? properties.GetAllAsync(ct) // Legacy snapshots do not contain property IDs.
+            : properties.GetByIdsAsync(propertyIds, ct);
+        var mappingsTask = RefreshTenantMappingsAsync([currentSnapshot], ct);
+        await Task.WhenAll(propertyTask, mappingsTask, historyTask);
+        var byId = propertyTask.Result.ToDictionary(value => value.Id);
+        var byAddress = propertyTask.Result.ToLookup(value => NormalizeAddress(value.PropertyName));
+        var indexedHistory = historyTask.Result.Select(snapshot => new
+        {
+            Snapshot = snapshot,
+            ById = snapshot.Records.Where(record => !string.IsNullOrWhiteSpace(record.PropertyId))
+                .ToLookup(record => record.PropertyId!),
+            ByAddress = snapshot.Records.ToLookup(record => NormalizeAddress(record.Address)),
+        }).ToList();
 
         var now = DateTime.UtcNow;
         var result = new List<EvictionQueueItemDto>();
-        foreach (var current in currentSnapshot.Records.Where(record => record.Status == "evictable"))
+        foreach (var current in candidates)
         {
             var property = !string.IsNullOrWhiteSpace(current.PropertyId)
-                ? await properties.GetByIdAsync(current.PropertyId, ct)
-                : await properties.GetByNameAsync(current.Address, ct);
+                ? byId.GetValueOrDefault(current.PropertyId)
+                : byAddress[NormalizeAddress(current.Address)].FirstOrDefault();
             if (property is null || property.Status != PropertyStatus.Evictable || property.CurrentTenantId is null)
                 continue;
 
             RentSyncSnapshot? noticeSnapshot = null;
             RentSyncRecord? notice = null;
-            foreach (var snapshot in allSnapshots)
+            foreach (var entry in indexedHistory)
             {
-                var matchingRecord = snapshot.Records.FirstOrDefault(record => IsSameProperty(current, record));
+                var matchingRecord = !string.IsNullOrWhiteSpace(current.PropertyId)
+                    ? entry.ById[current.PropertyId].FirstOrDefault() ??
+                        entry.ByAddress[NormalizeAddress(current.Address)]
+                            .FirstOrDefault(record => string.IsNullOrWhiteSpace(record.PropertyId))
+                    : entry.ByAddress[NormalizeAddress(current.Address)].FirstOrDefault();
                 if (matchingRecord is null) continue;
 
                 // A paid/overdue/empty record closes the previous eviction cycle. Never
@@ -65,7 +92,7 @@ public sealed class RentSyncService(
                 if (matchingRecord.Status != "evictable") break;
                 if (matchingRecord.NoticeGenerated == false) continue;
 
-                noticeSnapshot = snapshot;
+                noticeSnapshot = entry.Snapshot;
                 notice = matchingRecord;
                 break;
             }
@@ -200,10 +227,14 @@ public sealed class RentSyncService(
     public async Task<RentSyncSnapshotDto> SyncAsync(RentSyncRequest request, string actorId, CancellationToken ct)
     {
         var records = Parse(request.RawData);
-        var previousSnapshot = await snapshots.GetCurrentAsync(ct);
+        var previousSnapshotTask = snapshots.GetCurrentAsync(ct);
         var cids = records.Where(x => x.Cid.HasValue).Select(x => x.Cid!.Value).Distinct().ToArray();
-        var matchedTenants = (await tenants.GetByCidsAsync(cids, ct)).ToList();
-        var propertyByAddress = (await properties.GetAllAsync(ct))
+        var tenantsTask = tenants.GetByCidsAsync(cids, ct);
+        var propertiesTask = properties.GetAllAsync(ct);
+        await Task.WhenAll(previousSnapshotTask, tenantsTask, propertiesTask);
+        var previousSnapshot = previousSnapshotTask.Result;
+        var matchedTenants = tenantsTask.Result.ToList();
+        var propertyByAddress = propertiesTask.Result
             .GroupBy(property => NormalizeAddress(property.PropertyName))
             .ToDictionary(group => group.Key, group => group.OrderByDescending(x => x.UpdatedAt).First());
 
@@ -686,13 +717,6 @@ public sealed class RentSyncService(
             NormalizeAddress(previous.Address) == normalizedAddress);
     }
 
-    private static bool IsSameProperty(RentSyncRecord left, RentSyncRecord right)
-    {
-        if (!string.IsNullOrWhiteSpace(left.PropertyId) && !string.IsNullOrWhiteSpace(right.PropertyId))
-            return string.Equals(left.PropertyId, right.PropertyId, StringComparison.Ordinal);
-        return NormalizeAddress(left.Address) == NormalizeAddress(right.Address);
-    }
-
     private static string NormalizeAddress(string value) =>
         Regex.Replace(value.Trim(), @"\s+", " ").ToUpperInvariant();
 
@@ -705,12 +729,11 @@ public sealed class RentSyncService(
 
         var matchedTenants = await tenants.GetByCidsAsync(
             records.Select(value => value.Cid!.Value).Distinct().ToArray(), ct);
+        var tenantsByCid = matchedTenants.Where(tenant => !string.IsNullOrWhiteSpace(tenant.DiscordId))
+            .ToLookup(tenant => tenant.Cid);
         foreach (var record in records)
         {
-            var mappedTenant = matchedTenants
-                .Where(tenant =>
-                    tenant.Cid == record.Cid &&
-                    !string.IsNullOrWhiteSpace(tenant.DiscordId))
+            var mappedTenant = tenantsByCid[record.Cid]
                 .OrderByDescending(tenant => tenant.Id == record.TenantId)
                 .ThenByDescending(tenant => tenant.Status == TenantStatus.Active)
                 .ThenByDescending(tenant => tenant.UpdatedAt)

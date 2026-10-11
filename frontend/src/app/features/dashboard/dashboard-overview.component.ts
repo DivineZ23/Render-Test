@@ -1,9 +1,9 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { LucideArrowRight } from '@lucide/angular';
-import { catchError, of } from 'rxjs';
+import { catchError, of, startWith, Subject, switchMap } from 'rxjs';
 import { DashboardSummary } from '../../core/models/management.models';
 import { DashboardService } from '../../core/services/management.services';
 import { PageAccessService } from '../../core/services/page-access.service';
@@ -25,7 +25,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
         <article class="panel">
           <span>Total revenue</span>
           <b>{{ s.totalRevenue | currency: 'USD' : 'symbol' : '1.0-0' }}</b>
-          <small>Combined property rent</small>
+          <small>Latest synced income · listing rent before first sync</small>
         </article>
         <article class="panel">
           <span>Total cost</span>
@@ -120,8 +120,17 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
           </section>
         </aside>
       </div>
+    } @else if (error()) {
+      <div class="loading" role="alert">
+        Could not load the portfolio.
+        <button class="btn btn-secondary" (click)="reload()">Try again</button>
+      </div>
     } @else {
-      <div class="loading">Loading portfolio…</div>
+      <div class="financial-stats" aria-busy="true" aria-label="Loading portfolio">
+        @for (item of skeletons; track item) {
+          <article class="panel skeleton"><span></span><b></b><small></small></article>
+        }
+      </div>
     }`,
   styles: [
     `
@@ -350,6 +359,23 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
         text-align: center;
         color: var(--muted);
       }
+      .skeleton {
+        min-height: 138px;
+      }
+      .skeleton span,
+      .skeleton b,
+      .skeleton small {
+        display: block;
+        height: 16px;
+        width: 65%;
+        border-radius: 6px;
+        background: var(--skeleton-start);
+      }
+      .skeleton b {
+        height: 36px;
+        width: 85%;
+        margin: 14px 0;
+      }
       @media (max-width: 1100px) {
         .financial-stats {
           grid-template-columns: 1fr 1fr;
@@ -391,9 +417,29 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
 export class DashboardOverviewComponent {
   private service = inject(DashboardService);
   readonly access = inject(PageAccessService);
-  readonly summary = toSignal(this.service.get().pipe(catchError(() => of(null))), {
-    initialValue: null,
-  });
+  readonly error = signal(false);
+  readonly skeletons = [1, 2, 3, 4, 5, 6, 7, 8];
+  private readonly reload$ = new Subject<void>();
+  readonly summary = toSignal(
+    this.reload$.pipe(
+      startWith(undefined),
+      switchMap(() => {
+        this.error.set(false);
+        return this.service.get().pipe(
+          catchError(() => {
+            this.error.set(true);
+            return of(null);
+          }),
+        );
+      }),
+    ),
+    {
+      initialValue: null,
+    },
+  );
+  reload() {
+    this.reload$.next();
+  }
   occupancyPercent(s: DashboardSummary) {
     return s.totalProperties ? Math.round((100 * s.occupiedProperties) / s.totalProperties) : 0;
   }

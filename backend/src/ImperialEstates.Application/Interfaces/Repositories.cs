@@ -9,6 +9,8 @@ public interface IBlockRepository
 {
     Task<IReadOnlyList<Block>> GetAllAsync(bool activeOnly, CancellationToken cancellationToken);
     Task<Block?> GetByIdAsync(string id, CancellationToken cancellationToken);
+    async Task<IReadOnlyList<Block>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+        (await GetAllAsync(false, ct)).Where(value => ids.Contains(value.Id)).ToList();
     Task<Block?> GetByBusinessIdAsync(int blockId, CancellationToken cancellationToken);
     Task<Block?> GetByNameAsync(string name, CancellationToken cancellationToken);
     Task CreateAsync(Block block, CancellationToken cancellationToken);
@@ -23,6 +25,9 @@ public interface IPropertyRepository
     Task<Property?> GetByBusinessIdAsync(int propertyId, CancellationToken cancellationToken);
     Task<Property?> GetByNameAsync(string propertyName, CancellationToken cancellationToken);
     Task<IReadOnlyList<Property>> GetAllAsync(CancellationToken cancellationToken);
+    async Task<IReadOnlyList<PropertyPortfolioItem>> GetPortfolioAsync(CancellationToken ct) =>
+        (await GetAllAsync(ct)).Select(value => new PropertyPortfolioItem(
+            value.BlockId, value.Type, value.Rent, value.Status, value.CurrentTenantId)).ToList();
     Task<IReadOnlyList<Property>> GetFeaturedAsync(int limit, CancellationToken cancellationToken);
     Task<long> CountByBlockAsync(string blockId, CancellationToken cancellationToken);
     Task<long> CountByStatusAsync(PropertyStatus? status, CancellationToken cancellationToken);
@@ -36,6 +41,7 @@ public interface IPropertyRepository
 public interface IPropertyBookingRepository
 {
     Task<IReadOnlyList<PropertyBooking>> GetAllAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<PropertyBooking>> GetForAnalyticsAsync(DateTime? from, DateTime? to, CancellationToken ct) => GetAllAsync(ct);
     Task<IReadOnlyList<PropertyBooking>> GetAllActiveAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<PropertyBooking>> GetActiveByPropertyAsync(string propertyId, CancellationToken cancellationToken);
     Task<PropertyBooking?> GetByIdAsync(string id, CancellationToken cancellationToken);
@@ -58,6 +64,7 @@ public interface ITenantRepository
 {
     Task<PagedResult<Tenant>> QueryAsync(int page, int pageSize, CancellationToken cancellationToken);
     Task<IReadOnlyList<Tenant>> GetAllAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<Tenant>> GetForAnalyticsAsync(DateTime? from, DateTime? to, CancellationToken ct) => GetAllAsync(ct);
     Task<Tenant?> GetByIdAsync(string id, CancellationToken cancellationToken);
     async Task<IReadOnlyList<Tenant>> GetByIdsAsync(
         IReadOnlyCollection<string> ids,
@@ -80,8 +87,24 @@ public interface ITenantRepository
 public interface IRentSyncRepository
 {
     Task<RentSyncSnapshot?> GetCurrentAsync(CancellationToken cancellationToken);
+    async Task<decimal?> GetLatestIncomeAsync(CancellationToken ct) =>
+        (await GetCurrentAsync(ct))?.Records.Sum(record => record.Income);
     Task<RentSyncSnapshot?> GetByIdAsync(string id, CancellationToken cancellationToken);
+    Task<IReadOnlyList<RentSyncSnapshot>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+        RepositoryBatch.FetchAsync(ids, GetByIdAsync, ct);
     Task<IReadOnlyList<RentSyncSnapshot>> GetAllAsync(CancellationToken cancellationToken);
+    async Task<IReadOnlyList<RentSyncSnapshotDto>> GetSummariesAsync(CancellationToken ct) =>
+        (await GetAllAsync(ct)).Select(value => new RentSyncSnapshotDto(
+            value.Id, value.CreatedBy, value.UpdatedAt, value.Records.Count,
+            value.Records.Count(record => record.Status == "paid"),
+            value.Records.Count(record => record.Status == "overdue"),
+            value.Records.Count(record => record.Status == "evictable"),
+            value.Records.Count(record => record.Status == "empty"),
+            value.Records.Count(record => record.Cid.HasValue && string.IsNullOrEmpty(record.DiscordId)),
+            value.GoogleSheetSyncStatus, value.GoogleSheetSyncedAt, value.GoogleSheetSyncError,
+            value.GoogleSheetUrl, Array.Empty<RentSyncRecordDto>())).ToList();
+    Task<IReadOnlyList<RentSyncSnapshot>> GetEvictionHistoryAsync(DateTime asOf, IReadOnlyCollection<string> propertyIds, CancellationToken ct) => GetAllAsync(ct);
+    Task<IReadOnlyList<RentSyncSnapshot>> GetNoticesForAnalyticsAsync(DateTime? from, DateTime? to, CancellationToken ct) => GetAllAsync(ct);
     Task SaveCurrentAsync(RentSyncSnapshot snapshot, CancellationToken cancellationToken);
     Task UpdateAsync(RentSyncSnapshot snapshot, CancellationToken cancellationToken);
     Task DeleteAsync(string id, CancellationToken cancellationToken);
@@ -120,6 +143,8 @@ public interface IEnquiryRepository
 {
     Task<PagedResult<Enquiry>> QueryAsync(int page, int pageSize, EnquiryStatus? status, CancellationToken cancellationToken);
     Task<Enquiry?> GetByIdAsync(string id, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Enquiry>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+        RepositoryBatch.FetchAsync(ids, GetByIdAsync, ct);
     Task<long> CountPendingAsync(CancellationToken cancellationToken);
     Task CreateAsync(Enquiry enquiry, CancellationToken cancellationToken);
     Task UpdateAsync(Enquiry enquiry, CancellationToken cancellationToken);
@@ -133,10 +158,15 @@ public interface IAuditRepository
         QueryAsync(query.Page, query.PageSize, cancellationToken);
 }
 
+public sealed record PropertyPortfolioItem(
+    string BlockId, PropertyType Type, decimal Rent, PropertyStatus Status, string? CurrentTenantId);
+
 public interface IRecruitmentApplicationRepository
 {
     Task<PagedResult<RecruitmentApplication>> QueryAsync(int page, int pageSize, RecruitmentStatus? status, CancellationToken cancellationToken);
     Task<RecruitmentApplication?> GetByIdAsync(string id, CancellationToken cancellationToken);
+    Task<IReadOnlyList<RecruitmentApplication>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+        RepositoryBatch.FetchAsync(ids, GetByIdAsync, ct);
     Task<bool> HasPendingAsync(int characterCid, string discordId, CancellationToken cancellationToken);
     Task CreateAsync(RecruitmentApplication application, CancellationToken cancellationToken);
     Task UpdateAsync(RecruitmentApplication application, CancellationToken cancellationToken);
@@ -160,9 +190,12 @@ public interface ICommissionRepository
 {
     Task CreateManyAsync(IReadOnlyCollection<CommissionRecord> values, CancellationToken cancellationToken);
     Task<IReadOnlyList<CommissionRecord>> GetAllAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<CommissionRecord>> GetForAnalyticsAsync(DateTime? from, DateTime? to, CancellationToken ct) => GetAllAsync(ct);
     Task<IReadOnlyList<CommissionRecord>> GetByAgentAsync(string userId, CancellationToken cancellationToken);
     Task<IReadOnlyList<CommissionRecord>> GetBySettlementIdAsync(string settlementId, CancellationToken cancellationToken);
     Task<CommissionRecord?> GetByIdAsync(string id, CancellationToken cancellationToken);
+    Task<IReadOnlyList<CommissionRecord>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+        RepositoryBatch.FetchAsync(ids, GetByIdAsync, ct);
     Task UpdateAsync(CommissionRecord commission, CancellationToken cancellationToken);
 }
 
@@ -170,4 +203,11 @@ public interface ISettingRepository
 {
     Task<ApplicationSetting?> GetAsync(string key, CancellationToken cancellationToken);
     Task UpsertAsync(ApplicationSetting setting, CancellationToken cancellationToken);
+}
+
+internal static class RepositoryBatch
+{
+    public static async Task<IReadOnlyList<T>> FetchAsync<T>(IReadOnlyCollection<string> ids,
+        Func<string, CancellationToken, Task<T?>> fetch, CancellationToken ct) where T : class =>
+        (await Task.WhenAll(ids.Distinct().Select(id => fetch(id, ct)))).OfType<T>().ToList();
 }

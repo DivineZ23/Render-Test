@@ -462,8 +462,10 @@ public sealed class PropertyService(
     private async Task<Block> GetBlockAsync(string id, CancellationToken ct) => await blocks.GetByIdAsync(id, ct) ?? throw new DomainRuleException("Block does not exist.", "BLOCK_NOT_FOUND");
     private async Task<Dictionary<string, string>> BlockNamesAsync(IEnumerable<Property> values, CancellationToken ct)
     {
-        var result = new Dictionary<string, string>();
-        foreach (var id in values.Select(x => x.BlockId).Distinct()) result[id] = (await GetBlockAsync(id, ct)).BlockName;
+        var ids = values.Select(x => x.BlockId).Distinct().ToArray();
+        var result = (await blocks.GetByIdsAsync(ids, ct)).ToDictionary(x => x.Id, x => x.BlockName);
+        if (ids.Any(id => !result.ContainsKey(id)))
+            throw new DomainRuleException("Block does not exist.", "BLOCK_NOT_FOUND");
         return result;
     }
     private async Task<PropertyDto> ToManagementDtoAsync(Property value, string blockName, CancellationToken ct)

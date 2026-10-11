@@ -1,16 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
-import {
-  catchError,
-  debounceTime,
-  distinctUntilChanged,
-  finalize,
-  of,
-  startWith,
-  switchMap,
-  tap,
-} from 'rxjs';
+import { catchError, debounceTime, finalize, of, startWith, switchMap } from 'rxjs';
 import { DEFAULT_PAGE_SIZE } from '../../core/constants/app.constants';
 import { PROPERTY_TYPE_OPTIONS } from '../../core/constants/property-status.constants';
 import { PagedResult } from '../../core/models/api.models';
@@ -335,14 +326,11 @@ export class PropertiesListComponent {
     this.blockService.public().subscribe((v) => this.blocks.set(v));
     this.filters.valueChanges
       .pipe(
-        startWith(this.filters.getRawValue()),
         debounceTime(280),
-        distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
-        tap(() => {
+        startWith(this.filters.getRawValue()),
+        switchMap((value) => {
           this.loading.set(true);
           this.error.set(false);
-        }),
-        switchMap((value) => {
           const [sortBy, sortDirection] = value.sort!.split(':');
           const query: PropertyQuery = {
             ...value,

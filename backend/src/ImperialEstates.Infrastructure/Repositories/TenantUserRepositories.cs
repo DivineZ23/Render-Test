@@ -1,4 +1,5 @@
 using ImperialEstates.Application.Common;
+using System.Collections.Concurrent;
 using ImperialEstates.Application.Interfaces;
 using ImperialEstates.Domain.Entities;
 using ImperialEstates.Domain.Enums;
@@ -9,6 +10,22 @@ namespace ImperialEstates.Infrastructure.Repositories;
 
 public sealed class TenantRepository(MongoContext db) : ITenantRepository
 {
+    public async Task<IReadOnlyList<Tenant>> GetForAnalyticsAsync(DateTime? from, DateTime? to, CancellationToken ct) =>
+        await AnalyticsQuery(from, to).ToListAsync(ct);
+
+    internal IFindFluent<Tenant, Tenant> AnalyticsQuery(DateTime? from, DateTime? to) =>
+        db.Tenants.Find(x => !x.IsDeleted &&
+            (((!from.HasValue || x.CreatedAt >= from.Value) && (!to.HasValue || x.CreatedAt <= to.Value)) ||
+             (x.EndDate.HasValue && (!from.HasValue || x.EndDate >= from.Value) && (!to.HasValue || x.EndDate <= to.Value))))
+            .Project(x => new Tenant
+            {
+                Id = x.Id, PropertyId = x.PropertyId, FullName = x.FullName,
+                MonthlyRent = x.MonthlyRent, SecurityDeposit = x.SecurityDeposit,
+                CreatedAt = x.CreatedAt, CreatedBy = x.CreatedBy, EndDate = x.EndDate,
+                EvictedByUserId = x.EvictedByUserId, EvictedPropertyName = x.EvictedPropertyName,
+                EndReason = x.EndReason,
+            });
+
     public async Task<IReadOnlyList<Tenant>> GetAllAsync(CancellationToken ct) =>
         await db.Tenants.Find(x => !x.IsDeleted).SortByDescending(x => x.CreatedAt).ToListAsync(ct);
 
@@ -44,6 +61,10 @@ public sealed class TenantRepository(MongoContext db) : ITenantRepository
 
 public sealed class UserRepository(MongoContext db) : IUserRepository
 {
+    // This repository is scoped to one HTTP request. Authorization and the
+    // controller/service can share their actor lookup without caching permissions
+    // between requests. Lazy prevents duplicate concurrent database reads.
+    private readonly ConcurrentDictionary<string, Lazy<Task<User?>>> userReads = new(StringComparer.Ordinal);
     public async Task<PagedResult<User>> QueryAsync(int page, int pageSize, ApprovalStatus? approval, AccessStatus? access, UserRole? role, CancellationToken ct)
     {
         page = Paging.NormalizePage(page); pageSize = Paging.NormalizePageSize(pageSize);
@@ -56,9 +77,17 @@ public sealed class UserRepository(MongoContext db) : IUserRepository
         await Task.WhenAll(totalTask, itemsTask);
         return new(itemsTask.Result, page, pageSize, totalTask.Result);
     }
-    public Task<User?> GetByIdAsync(string id, CancellationToken ct) => db.Users.Find(x => x.Id == id && !x.IsDeleted).FirstOrDefaultAsync(ct)!;
-    public async Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
-        await db.Users.Find(x => ids.Contains(x.Id) && !x.IsDeleted).ToListAsync(ct);
+    public Task<User?> GetByIdAsync(string id, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return userReads.GetOrAdd(id, key => new Lazy<Task<User?>>(() =>
+            db.Users.Find(x => x.Id == key && !x.IsDeleted).FirstOrDefaultAsync(ct)!)).Value;
+    }
+    public async Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct)
+    {
+        if (ids.Count == 0) return [];
+        return await db.Users.Find(x => ids.Contains(x.Id) && !x.IsDeleted).ToListAsync(ct);
+    }
     public async Task<IReadOnlyList<string>> SearchIdsAsync(string search, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(search)) return [];
@@ -74,6 +103,15 @@ public sealed class UserRepository(MongoContext db) : IUserRepository
     public Task<User?> GetByCidAsync(int cid, CancellationToken ct) => db.Users.Find(x => x.Cid == cid && !x.IsDeleted).FirstOrDefaultAsync(ct)!;
     public Task<long> CountActiveManagersAsync(CancellationToken ct) => db.Users.CountDocumentsAsync(x => !x.IsDeleted && x.Role == UserRole.Manager && x.ApprovalStatus == ApprovalStatus.Approved && x.AccessStatus == AccessStatus.Active, cancellationToken: ct);
     public Task<long> CountPendingAsync(CancellationToken ct) => db.Users.CountDocumentsAsync(x => !x.IsDeleted && x.ApprovalStatus == ApprovalStatus.Pending, cancellationToken: ct);
-    public Task CreateAsync(User value, CancellationToken ct) { RepositoryHelpers.PrepareForInsert(value); return db.Users.InsertOneAsync(value, cancellationToken: ct); }
-    public Task UpdateAsync(User value, CancellationToken ct) => RepositoryHelpers.ReplaceAsync(db.Users, value, ct);
+    public async Task CreateAsync(User value, CancellationToken ct)
+    {
+        RepositoryHelpers.PrepareForInsert(value);
+        await db.Users.InsertOneAsync(value, cancellationToken: ct);
+        userReads.TryRemove(value.Id, out _);
+    }
+    public async Task UpdateAsync(User value, CancellationToken ct)
+    {
+        await RepositoryHelpers.ReplaceAsync(db.Users, value, ct);
+        userReads.TryRemove(value.Id, out _);
+    }
 }

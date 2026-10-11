@@ -58,12 +58,8 @@ public sealed class RecruitmentService(
             .Distinct()
             .Cast<string>()
             .ToArray();
-        var reviewers = new Dictionary<string, string>();
-        foreach (var reviewerId in reviewerIds)
-        {
-            var reviewer = await users.GetByIdAsync(reviewerId, ct);
-            if (reviewer is not null) reviewers[reviewerId] = reviewer.DisplayName;
-        }
+        var reviewers = (await users.GetByIdsAsync(reviewerIds, ct))
+            .ToDictionary(value => value.Id, value => value.DisplayName);
 
         return new(
             values.Items

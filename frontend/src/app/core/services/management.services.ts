@@ -9,6 +9,7 @@ import {
   CreateRecruitmentApplicationRequest,
   DashboardSummary,
   AgentAnalytics,
+  AgentAnalyticsDetail,
   PersonalStatistics,
   Enquiry,
   EnquiryStatus,
@@ -197,6 +198,9 @@ export class DashboardService {
   agents(from?: string, to?: string): Observable<AgentAnalytics> {
     return this.api.get(API_ENDPOINTS.agentAnalytics, { from, to });
   }
+  agent(id: string, from?: string, to?: string): Observable<AgentAnalyticsDetail> {
+    return this.api.get(`${API_ENDPOINTS.agentAnalytics}/${id}`, { from, to });
+  }
 }
 @Injectable({ providedIn: 'root' })
 export class TenantService {
@@ -214,8 +218,8 @@ export class NoticeService {
   snapshot(): Observable<RentSyncSnapshot> {
     return this.api.get(API_ENDPOINTS.notices.snapshot);
   }
-  snapshots(): Observable<RentSyncSnapshot[]> {
-    return this.api.get(API_ENDPOINTS.notices.snapshots);
+  snapshots(summaryOnly = false): Observable<RentSyncSnapshot[]> {
+    return this.api.get(API_ENDPOINTS.notices.snapshots, { summaryOnly });
   }
   evictionQueue(): Observable<EvictionQueueItem[]> {
     return this.api.get(API_ENDPOINTS.notices.evictionQueue);

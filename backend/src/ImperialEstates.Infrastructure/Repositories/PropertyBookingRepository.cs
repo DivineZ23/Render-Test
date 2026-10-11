@@ -8,6 +8,19 @@ namespace ImperialEstates.Infrastructure.Repositories;
 
 public sealed class PropertyBookingRepository(MongoContext db) : IPropertyBookingRepository
 {
+    public async Task<IReadOnlyList<PropertyBooking>> GetForAnalyticsAsync(DateTime? from, DateTime? to, CancellationToken ct) =>
+        await AnalyticsQuery(from, to).ToListAsync(ct);
+
+    internal IFindFluent<PropertyBooking, PropertyBooking> AnalyticsQuery(DateTime? from, DateTime? to) =>
+        db.PropertyBookings.Find(x => !x.IsDeleted &&
+            (!from.HasValue || x.CreatedAt >= from.Value) && (!to.HasValue || x.CreatedAt <= to.Value))
+            .Project(x => new PropertyBooking
+            {
+                Id = x.Id, PropertyId = x.PropertyId, FullName = x.FullName,
+                MonthlyRent = x.MonthlyRent, BookingAmount = x.BookingAmount, Status = x.Status,
+                CreatedBy = x.CreatedBy, CreatedAt = x.CreatedAt,
+            });
+
     public async Task<IReadOnlyList<PropertyBooking>> GetAllAsync(CancellationToken ct) =>
         await db.PropertyBookings.Find(x => !x.IsDeleted)
             .SortByDescending(x => x.CreatedAt).ToListAsync(ct);
@@ -36,10 +49,10 @@ public sealed class PropertyBookingRepository(MongoContext db) : IPropertyBookin
         var filter = Builders<PropertyBooking>.Filter.In(x => x.PropertyId, propertyIds) &
             Builders<PropertyBooking>.Filter.Eq(x => x.Status, BookingStatus.Active) &
             Builders<PropertyBooking>.Filter.Eq(x => x.IsDeleted, false);
-        var matches = await db.PropertyBookings.Find(filter).Project(x => x.PropertyId).ToListAsync(ct);
-        return matches
-            .GroupBy(x => x, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => (long)group.Count(), StringComparer.Ordinal);
+        var counts = await db.PropertyBookings.Aggregate().Match(filter)
+            .Group(x => x.PropertyId, group => new { PropertyId = group.Key, Count = group.LongCount() })
+            .ToListAsync(ct);
+        return counts.ToDictionary(value => value.PropertyId, value => value.Count, StringComparer.Ordinal);
     }
 
     public async Task CreateAsync(PropertyBooking booking, CancellationToken ct)

@@ -17,7 +17,7 @@ import {
   LucideUserMinus,
   LucideUserPlus,
 } from '@lucide/angular';
-import { debounceTime, finalize, startWith, switchMap } from 'rxjs';
+import { catchError, debounceTime, finalize, of, startWith, switchMap } from 'rxjs';
 import {
   PROPERTY_STATUSES,
   PROPERTY_TYPE_OPTIONS,
@@ -93,6 +93,12 @@ import { EvictTenantDialogComponent } from './evict-tenant-dialog.component';
       @if (loading()) {
         <div class="loading">Updating portfolio…</div>
       }
+      @if (error()) {
+        <div class="loading" role="alert">
+          Could not load properties.
+          <button class="btn btn-secondary" (click)="refresh()">Try again</button>
+        </div>
+      }
       <table class="data-table">
         <colgroup>
           <col class="col-id" />
@@ -167,16 +173,10 @@ import { EvictTenantDialogComponent } from './evict-tenant-dialog.component';
                       <svg lucideUserMinus></svg>Evict
                     </button>
                   }
-                  @if (
-                    access.canAccess('portfolio.properties.book') &&
-                    canBook(property)
-                  ) {
+                  @if (access.canAccess('portfolio.properties.book') && canBook(property)) {
                     <a [routerLink]="[property.id, 'book']"><svg lucideCalendarPlus></svg>Book</a>
                   }
-                  @if (
-                    access.canAccess('portfolio.properties.book') &&
-                    property.bookingCount > 0
-                  ) {
+                  @if (access.canAccess('portfolio.properties.book') && property.bookingCount > 0) {
                     <a [routerLink]="[property.id, 'bookings']">
                       <svg lucideClipboardList></svg>Bookings ({{ property.bookingCount }})
                     </a>
@@ -210,14 +210,16 @@ import { EvictTenantDialogComponent } from './evict-tenant-dialog.component';
               </td>
             </tr>
           } @empty {
-            <tr>
-              <td colspan="11">
-                <app-empty-state
-                  title="No properties found"
-                  message="Adjust your filters or add the first property."
-                />
-              </td>
-            </tr>
+            @if (!loading() && !error()) {
+              <tr>
+                <td colspan="11">
+                  <app-empty-state
+                    title="No properties found"
+                    message="Adjust your filters or add the first property."
+                  />
+                </td>
+              </tr>
+            }
           }
         </tbody>
       </table>
@@ -429,7 +431,8 @@ export class PropertyManagementComponent {
     );
   }
   readonly blocks = signal<Block[]>([]);
-  readonly loading = signal(false);
+  readonly loading = signal(true);
+  readonly error = signal(false);
   readonly result = signal<PagedResult<Property>>({
     items: [],
     page: 1,
@@ -452,13 +455,18 @@ export class PropertyManagementComponent {
     this.blockService.all().subscribe((v) => this.blocks.set(v));
     this.filters.valueChanges
       .pipe(
-        startWith(this.filters.getRawValue()),
         debounceTime(220),
+        startWith(this.filters.getRawValue()),
         switchMap((value) => {
           this.loading.set(true);
-          return this.service
-            .all({ ...value, pageSize: 10 })
-            .pipe(finalize(() => this.loading.set(false)));
+          this.error.set(false);
+          return this.service.all({ ...value, pageSize: 10 }).pipe(
+            catchError(() => {
+              this.error.set(true);
+              return of(this.result());
+            }),
+            finalize(() => this.loading.set(false)),
+          );
         }),
         takeUntilDestroyed(this.destroy),
       )

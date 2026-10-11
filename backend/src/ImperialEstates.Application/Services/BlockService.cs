@@ -11,7 +11,7 @@ public sealed class BlockService(IBlockRepository blocks, IPropertyRepository pr
     public async Task<IReadOnlyList<BlockDto>> GetAllAsync(bool activeOnly, CancellationToken cancellationToken)
     {
         var blocksTask = blocks.GetAllAsync(activeOnly, cancellationToken);
-        var propertiesTask = properties.GetAllAsync(cancellationToken);
+        var propertiesTask = properties.GetPortfolioAsync(cancellationToken);
         await Task.WhenAll(blocksTask, propertiesTask);
         var financials = BuildFinancials(propertiesTask.Result);
         return blocksTask.Result.Select(value => FinancialDto(value, financials)).ToList();
@@ -20,7 +20,7 @@ public sealed class BlockService(IBlockRepository blocks, IPropertyRepository pr
     public async Task<BlockDto> GetAsync(string id, CancellationToken cancellationToken)
     {
         var value = await GetEntityAsync(id, cancellationToken);
-        return FinancialDto(value, BuildFinancials(await properties.GetAllAsync(cancellationToken)));
+        return FinancialDto(value, BuildFinancials(await properties.GetPortfolioAsync(cancellationToken)));
     }
 
     public async Task<BlockDto> CreateAsync(UpsertBlockRequest request, string actorId, CancellationToken cancellationToken)
@@ -55,7 +55,7 @@ public sealed class BlockService(IBlockRepository blocks, IPropertyRepository pr
         value.UpdatedBy = actorId;
         await blocks.UpdateAsync(value, cancellationToken);
         await audits.CreateAsync(NewAudit("block.updated", value.Id, actorId), cancellationToken);
-        return FinancialDto(value, BuildFinancials(await properties.GetAllAsync(cancellationToken)));
+        return FinancialDto(value, BuildFinancials(await properties.GetPortfolioAsync(cancellationToken)));
     }
 
     public async Task DeleteAsync(string id, string actorId, CancellationToken cancellationToken)
@@ -77,7 +77,7 @@ public sealed class BlockService(IBlockRepository blocks, IPropertyRepository pr
     private static AuditLog NewAudit(string action, string entityId, string actorId) =>
         new() { Action = action, EntityType = "block", EntityId = entityId, PerformedByUserId = actorId };
 
-    private static IReadOnlyDictionary<string, BlockFinancials> BuildFinancials(IEnumerable<Property> properties) =>
+    private static IReadOnlyDictionary<string, BlockFinancials> BuildFinancials(IEnumerable<PropertyPortfolioItem> properties) =>
         properties
             .GroupBy(property => property.BlockId)
             .ToDictionary(

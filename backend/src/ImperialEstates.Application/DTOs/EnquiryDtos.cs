@@ -112,3 +112,33 @@ public sealed record AgentAnalyticsDto(
     DateTime? To,
     AgentAnalyticsTotalsDto Totals,
     IReadOnlyList<AgentPerformanceDto> Agents);
+
+public sealed record AgentBookingActivityDto(
+    string Id, string PropertyId, string PropertyName, string ClientName,
+    decimal BookingAmount, decimal MonthlyRent, BookingStatus Status, DateTime CreatedAt);
+
+public sealed record AgentSaleActivityDto(
+    string Id, string PropertyId, string PropertyName, string TenantName,
+    decimal MonthlyRent, decimal SecurityDeposit, DateTime SoldAt);
+
+public sealed record AgentCommissionActivityDto(
+    string Id, string AuctionReference, decimal Amount, bool IsPaid,
+    bool IsWinningAgent, DateTime CreatedAt, DateTime? PaidAt);
+
+public sealed record AgentEvictionActivityDto(
+    string Id, string PropertyId, string PropertyName, string TenantName,
+    string Reason, DateTime EvictedAt);
+
+public sealed record AgentNoticeActivityDto(
+    string Id, string Address, string Status, string? RenterName,
+    int? Cid, decimal Rent, DateTime SentAt);
+
+public sealed record AgentAnalyticsDetailDto(
+    DateTime? From,
+    DateTime? To,
+    AgentPerformanceDto Summary,
+    IReadOnlyList<AgentBookingActivityDto> Bookings,
+    IReadOnlyList<AgentSaleActivityDto> Sales,
+    IReadOnlyList<AgentCommissionActivityDto> Commissions,
+    IReadOnlyList<AgentEvictionActivityDto> Evictions,
+    IReadOnlyList<AgentNoticeActivityDto> Notices);

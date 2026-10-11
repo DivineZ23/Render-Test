@@ -39,4 +39,9 @@ public sealed class DashboardController(
     [Authorize(Policy = "Manager"), HttpGet("agents")]
     public Task<AgentAnalyticsDto> Agents(DateTime? from, DateTime? to, CancellationToken ct) =>
         agentAnalytics.GetAsync(from, to, ct);
+
+    [Authorize(Policy = "Manager"), HttpGet("agents/{userId}")]
+    public Task<AgentAnalyticsDetailDto> Agent(
+        string userId, DateTime? from, DateTime? to, CancellationToken ct) =>
+        agentAnalytics.GetDetailAsync(userId, from, to, ct);
 }

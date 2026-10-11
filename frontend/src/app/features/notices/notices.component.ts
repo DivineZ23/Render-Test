@@ -4,8 +4,10 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -39,6 +41,7 @@ import { PageAccessService } from '../../core/services/page-access.service';
 import { PropertyService } from '../../core/services/property.service';
 import { EvictTenantDialogComponent } from '../properties/evict-tenant-dialog.component';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
+import { AgentSummary } from '../../core/models/user.models';
 
 type NoticeView =
   | 'sync'
@@ -276,7 +279,8 @@ interface EvictionDayGroup {
             ><span>Waiting</span>
           </div>
           <div class="panel held">
-            <b>{{ heldEvictionCount() }}</b><span>On hold</span>
+            <b>{{ heldEvictionCount() }}</b
+            ><span>On hold</span>
           </div>
         </div>
         @if (queueLoading()) {
@@ -911,7 +915,7 @@ export class NoticesComponent {
   readonly imagesOpen = signal<Record<string, boolean>>({});
   private readonly tenantService = inject(TenantService);
   private readonly teamService = inject(TeamService);
-  readonly users = toSignal(this.teamService.agents(), { initialValue: [] });
+  readonly users = signal<AgentSummary[]>([]);
   rawData = '';
   private readonly destroyRef = inject(DestroyRef);
 
@@ -1060,25 +1064,46 @@ export class NoticesComponent {
   );
 
   constructor() {
-    this.load();
+    effect(() => {
+      const mode = this.mode();
+      untracked(() => {
+        if (mode === 'evictionQueue') this.loadEvictionQueue();
+        else if (mode === 'evictionHistory') this.loadEvictionHistory();
+        else if (this.isNoticeView() || mode === 'syncedDataRecords') {
+          this.loadSnapshots();
+          if (mode === 'syncedDataRecords')
+            this.teamService
+              .agents()
+              .pipe(takeUntilDestroyed(this.destroyRef))
+              .subscribe((values) => this.users.set(values));
+        } else this.loadCurrentSnapshot();
+      });
+    });
     interval(60_000)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
-        if (this.mode() === 'sync' && !this.syncing() && !this.sheetRetrying())
+        if (!document.hidden && this.mode() === 'sync' && !this.syncing() && !this.sheetRetrying())
           this.loadCurrentSnapshot();
       });
     interval(1_000)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.now.set(Date.now()));
-    this.loadEvictionQueue();
-    this.tenantService.evictions().subscribe({
-      next: (values) => {
-        this.evictionHistory.set(values);
-        const first = this.evictionGroups()[0]?.key;
-        if (first) this.expandedEvictionDays.set({ [first]: true });
-      },
-      error: () => this.evictionHistory.set([]),
-    });
+      .subscribe(() => {
+        if (!document.hidden && this.mode() === 'evictionQueue') this.now.set(Date.now());
+      });
+  }
+
+  private loadEvictionHistory() {
+    this.tenantService
+      .evictions()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (values) => {
+          this.evictionHistory.set(values);
+          const first = this.evictionGroups()[0]?.key;
+          if (first) this.expandedEvictionDays.set({ [first]: true });
+        },
+        error: () => this.evictionHistory.set([]),
+      });
   }
 
   userDisplayName(userId?: string | null) {
@@ -1099,26 +1124,24 @@ export class NoticesComponent {
     const key = this.evictionQueueKey(item);
     if (this.holdingEvictionKey()) return;
     this.holdingEvictionKey.set(key);
-    this.notices
-      .setEvictionHold(item.noticeSnapshotId, item.noticeRowNumber, isOnHold)
-      .subscribe({
-        next: () => {
-          this.holdingEvictionKey.set(null);
-          this.snackBar.open(
-            isOnHold ? `${item.propertyName} placed on hold.` : `${item.propertyName} released.`,
-            'Dismiss',
-            { duration: 2800 },
-          );
-          this.loadEvictionQueue();
-        },
-        error: () => {
-          this.holdingEvictionKey.set(null);
-          this.snackBar.open('The eviction hold could not be updated.', 'Dismiss', {
-            duration: 3500,
-            panelClass: ['error-toast'],
-          });
-        },
-      });
+    this.notices.setEvictionHold(item.noticeSnapshotId, item.noticeRowNumber, isOnHold).subscribe({
+      next: () => {
+        this.holdingEvictionKey.set(null);
+        this.snackBar.open(
+          isOnHold ? `${item.propertyName} placed on hold.` : `${item.propertyName} released.`,
+          'Dismiss',
+          { duration: 2800 },
+        );
+        this.loadEvictionQueue();
+      },
+      error: () => {
+        this.holdingEvictionKey.set(null);
+        this.snackBar.open('The eviction hold could not be updated.', 'Dismiss', {
+          duration: 3500,
+          panelClass: ['error-toast'],
+        });
+      },
+    });
   }
 
   evictionCountdown(item: EvictionQueueItem) {
@@ -1317,54 +1340,61 @@ export class NoticesComponent {
     });
   }
 
-  private load() {
-    this.loadCurrentSnapshot();
-    this.loadSnapshots();
-  }
-
   private loadEvictionQueue() {
+    if (this.mode() !== 'evictionQueue') return;
     this.queueLoading.set(true);
-    this.notices.evictionQueue().subscribe({
-      next: (items) => {
-        this.evictionQueue.set(items);
-        this.queueLoading.set(false);
-      },
-      error: () => {
-        this.evictionQueue.set([]);
-        this.queueLoading.set(false);
-      },
-    });
+    this.notices
+      .evictionQueue()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (items) => {
+          this.evictionQueue.set(items);
+          this.queueLoading.set(false);
+        },
+        error: () => {
+          this.evictionQueue.set([]);
+          this.queueLoading.set(false);
+        },
+      });
   }
 
   private loadCurrentSnapshot() {
-    this.notices.snapshot().subscribe({
-      next: (snapshot) => this.snapshot.set(snapshot),
-      error: () =>
-        this.snapshot.set({
-          id: '',
-          total: 0,
-          active: 0,
-          overdue: 0,
-          evictable: 0,
-          empty: 0,
-          unmappedTenants: 0,
-          googleSheetSyncStatus: 'notConfigured',
-          records: [],
-        }),
-    });
+    this.notices
+      .snapshot()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (snapshot) => this.snapshot.set(snapshot),
+        error: () =>
+          this.snapshot.set({
+            id: '',
+            total: 0,
+            active: 0,
+            overdue: 0,
+            evictable: 0,
+            empty: 0,
+            unmappedTenants: 0,
+            googleSheetSyncStatus: 'notConfigured',
+            records: [],
+          }),
+      });
   }
 
   private loadSnapshots() {
-    this.notices.snapshots().subscribe({
-      next: (snapshots) => {
-        this.snapshotList.set(snapshots);
-        const defaults = { ...this.expandedDays() };
-        for (const group of this.noticeGroups())
-          if (defaults[group.key] === undefined) defaults[group.key] = group.unresolved > 0;
-        this.expandedDays.set(defaults);
-      },
-      error: () => this.snapshotList.set([]),
-    });
+    if (!this.isNoticeView() && !this.isSyncedDataRecords()) return;
+    this.notices
+      .snapshots(this.isSyncedDataRecords())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (snapshots) => {
+          this.snapshotList.set(snapshots);
+          if (this.isNoticeView()) this.snapshot.set(snapshots[0] ?? null);
+          const defaults = { ...this.expandedDays() };
+          for (const group of this.noticeGroups())
+            if (defaults[group.key] === undefined) defaults[group.key] = group.unresolved > 0;
+          this.expandedDays.set(defaults);
+        },
+        error: () => this.snapshotList.set([]),
+      });
   }
 
   private dayKey(value: string | undefined, fallback: string) {

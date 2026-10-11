@@ -13,7 +13,8 @@ public sealed class NoticesController(RentSyncService service) : ControllerBase
     public Task<RentSyncSnapshotDto> Snapshot(CancellationToken ct) => service.GetCurrentAsync(ct);
 
     [Authorize(Policy = "ApprovedUser"), HttpGet("snapshots")]
-    public Task<IReadOnlyList<RentSyncSnapshotDto>> Snapshots(CancellationToken ct) => service.GetAllAsync(ct);
+    public Task<IReadOnlyList<RentSyncSnapshotDto>> Snapshots(CancellationToken ct, [FromQuery] bool summaryOnly = false) =>
+        summaryOnly ? service.GetSummariesAsync(ct) : service.GetAllAsync(ct);
 
     [Authorize(Policy = "ApprovedUser"), HttpGet("eviction-queue")]
     public Task<IReadOnlyList<EvictionQueueItemDto>> EvictionQueue(CancellationToken ct) =>

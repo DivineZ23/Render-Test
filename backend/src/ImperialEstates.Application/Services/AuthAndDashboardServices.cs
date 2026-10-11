@@ -49,11 +49,11 @@ public sealed class DashboardService(
     public async Task<DashboardSummaryDto> GetAsync(CancellationToken ct)
     {
         var blocksTask = blocks.GetAllAsync(true, ct);
-        var propertiesTask = properties.GetAllAsync(ct);
+        var propertiesTask = properties.GetPortfolioAsync(ct);
         var pendingEnquiriesTask = enquiries.CountPendingAsync(ct);
         var pendingUsersTask = users.CountPendingAsync(ct);
         var recentHistoryTask = history.GetRecentAsync(8, ct);
-        var latestRentSyncTask = rentSync.GetCurrentAsync(ct);
+        var latestRentSyncTask = rentSync.GetLatestIncomeAsync(ct);
         await Task.WhenAll(
             blocksTask,
             propertiesTask,
@@ -65,9 +65,7 @@ public sealed class DashboardService(
         var allProperties = propertiesTask.Result;
         var totalCost = allProperties.Sum(property => property.Type.StateCost() ?? 0);
         var latestRentSync = latestRentSyncTask.Result;
-        var totalRevenue = latestRentSync is null
-            ? allProperties.Sum(property => property.Rent)
-            : latestRentSync.Records.Sum(record => record.Income);
+        var totalRevenue = latestRentSync ?? allProperties.Sum(property => property.Rent);
         var totalProfit = totalRevenue - totalCost;
         var blockNames = activeBlocks.ToDictionary(block => block.Id, block => block.BlockName);
         var blockFinancials = allProperties

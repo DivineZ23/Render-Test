@@ -1,8 +1,8 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { LucideArrowRight, LucideSearch, LucideUsersRound } from '@lucide/angular';
-import { catchError, of } from 'rxjs';
+import { catchError, finalize, of, startWith, Subject, switchMap } from 'rxjs';
 import { PropertyService } from '../../core/services/property.service';
 import { PropertyCardComponent } from '../../shared/components/property-card/property-card.component';
 
@@ -58,16 +58,27 @@ import { PropertyCardComponent } from '../../shared/components/property-card/pro
           @for (property of featured(); track property.id) {
             <app-property-card [property]="property" />
           } @empty {
-            <div class="featured-empty">
-              <svg lucideSearch></svg>
-              <div>
-                <h3>New residences are being prepared</h3>
-                <p>
-                  There are no featured homes to display right now. Check the full property
-                  collection for the latest availability.
-                </p>
+            @if (loading()) {
+              <div class="featured-empty" role="status" aria-busy="true">
+                Loading featured homes…
               </div>
-            </div>
+            } @else if (error()) {
+              <div class="featured-empty" role="alert">
+                <p>Featured homes could not be loaded.</p>
+                <button class="btn btn-secondary" (click)="reload()">Try again</button>
+              </div>
+            } @else {
+              <div class="featured-empty">
+                <svg lucideSearch></svg>
+                <div>
+                  <h3>New residences are being prepared</h3>
+                  <p>
+                    There are no featured homes to display right now. Check the full property
+                    collection for the latest availability.
+                  </p>
+                </div>
+              </div>
+            }
           }
         </div>
       </div>
@@ -414,7 +425,29 @@ import { PropertyCardComponent } from '../../shared/components/property-card/pro
 })
 export class HomeComponent {
   private properties = inject(PropertyService);
-  readonly featured = toSignal(this.properties.featured().pipe(catchError(() => of([]))), {
-    initialValue: [],
-  });
+  readonly loading = signal(true);
+  readonly error = signal(false);
+  private readonly reload$ = new Subject<void>();
+  readonly featured = toSignal(
+    this.reload$.pipe(
+      startWith(undefined),
+      switchMap(() => {
+        this.loading.set(true);
+        this.error.set(false);
+        return this.properties.featured().pipe(
+          catchError(() => {
+            this.error.set(true);
+            return of([]);
+          }),
+          finalize(() => this.loading.set(false)),
+        );
+      }),
+    ),
+    {
+      initialValue: [],
+    },
+  );
+  reload() {
+    this.reload$.next();
+  }
 }

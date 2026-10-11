@@ -1,4 +1,5 @@
 using System.Linq;
+using ImperialEstates.Application.DTOs;
 using ImperialEstates.Application.Interfaces;
 using ImperialEstates.Domain.Entities;
 using ImperialEstates.Infrastructure.Persistence;
@@ -11,11 +12,89 @@ public sealed class RentSyncRepository(MongoContext db) : IRentSyncRepository
     public Task<RentSyncSnapshot?> GetCurrentAsync(CancellationToken ct) =>
         db.RentSyncSnapshots.Find(x => !x.IsDeleted).SortByDescending(x => x.UpdatedAt).FirstOrDefaultAsync(ct)!;
 
+    public async Task<decimal?> GetLatestIncomeAsync(CancellationToken ct)
+    {
+        var result = await IncomeQuery().FirstOrDefaultAsync(ct);
+        return result?.Income;
+    }
+
+    internal IFindFluent<RentSyncSnapshot, RentSyncIncome> IncomeQuery() =>
+        db.RentSyncSnapshots.Find(x => !x.IsDeleted).SortByDescending(x => x.UpdatedAt)
+            .Project(x => new RentSyncIncome(x.Records.Sum(record => record.Income)));
+
+    internal sealed record RentSyncIncome(decimal Income);
+
     public Task<RentSyncSnapshot?> GetByIdAsync(string id, CancellationToken ct) =>
         db.RentSyncSnapshots.Find(x => x.Id == id && !x.IsDeleted).FirstOrDefaultAsync(ct)!;
 
+    public async Task<IReadOnlyList<RentSyncSnapshot>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+        ids.Count == 0 ? [] : await db.RentSyncSnapshots.Find(x => ids.Contains(x.Id) && !x.IsDeleted).ToListAsync(ct);
+
     public async Task<IReadOnlyList<RentSyncSnapshot>> GetAllAsync(CancellationToken ct) =>
         await db.RentSyncSnapshots.Find(x => !x.IsDeleted).SortByDescending(x => x.UpdatedAt).ToListAsync(ct);
+
+    public async Task<IReadOnlyList<RentSyncSnapshotDto>> GetSummariesAsync(CancellationToken ct) =>
+        await SummaryQuery().ToListAsync(ct);
+
+    internal IFindFluent<RentSyncSnapshot, RentSyncSnapshotDto> SummaryQuery() =>
+        db.RentSyncSnapshots.Find(x => !x.IsDeleted).SortByDescending(x => x.UpdatedAt)
+            .Project(value => new RentSyncSnapshotDto(
+                value.Id, value.CreatedBy, value.UpdatedAt, value.Records.Count,
+                value.Records.Count(record => record.Status == "paid"),
+                value.Records.Count(record => record.Status == "overdue"),
+                value.Records.Count(record => record.Status == "evictable"),
+                value.Records.Count(record => record.Status == "empty"),
+                value.Records.Count(record => record.Cid.HasValue && (record.DiscordId == null || record.DiscordId == "")),
+                value.GoogleSheetSyncStatus, value.GoogleSheetSyncedAt, value.GoogleSheetSyncError,
+                value.GoogleSheetUrl, Array.Empty<RentSyncRecordDto>()));
+
+    public async Task<IReadOnlyList<RentSyncSnapshot>> GetEvictionHistoryAsync(
+        DateTime asOf, IReadOnlyCollection<string> propertyIds, CancellationToken ct) =>
+        await EvictionHistoryQuery(asOf, propertyIds).ToListAsync(ct);
+
+    internal IFindFluent<RentSyncSnapshot, RentSyncSnapshot> EvictionHistoryQuery(
+        DateTime asOf, IReadOnlyCollection<string> propertyIds) =>
+        db.RentSyncSnapshots.Find(x => !x.IsDeleted && x.UpdatedAt <= asOf &&
+            x.Records.Any(record => propertyIds.Count == 0 || propertyIds.Contains(record.PropertyId!) ||
+                record.PropertyId == null || record.PropertyId == ""))
+            .SortByDescending(x => x.UpdatedAt)
+            .Project(x => new RentSyncSnapshot
+            {
+                Id = x.Id,
+                Records = x.Records.Where(record => propertyIds.Count == 0 || propertyIds.Contains(record.PropertyId!) ||
+                    record.PropertyId == null || record.PropertyId == "")
+                    .Select(record => new RentSyncRecord
+                    {
+                        PropertyId = record.PropertyId, Address = record.Address, Status = record.Status,
+                        RowNumber = record.RowNumber, NoticeGenerated = record.NoticeGenerated,
+                        IsResolved = record.IsResolved, ResolvedAt = record.ResolvedAt,
+                        IsEvictionOnHold = record.IsEvictionOnHold,
+                        EvictionHeldByUserId = record.EvictionHeldByUserId,
+                        EvictionHeldByDisplayName = record.EvictionHeldByDisplayName,
+                        EvictionHeldAt = record.EvictionHeldAt,
+                    }).ToList(),
+            });
+
+    public async Task<IReadOnlyList<RentSyncSnapshot>> GetNoticesForAnalyticsAsync(DateTime? from, DateTime? to, CancellationToken ct) =>
+        await AnalyticsQuery(from, to).ToListAsync(ct);
+
+    internal IFindFluent<RentSyncSnapshot, RentSyncSnapshot> AnalyticsQuery(DateTime? from, DateTime? to) =>
+        db.RentSyncSnapshots.Find(x => !x.IsDeleted && x.Records.Any(record =>
+            (record.Status == "overdue" || record.Status == "evictable") && record.ResolvedAt.HasValue &&
+            (!from.HasValue || record.ResolvedAt >= from.Value) && (!to.HasValue || record.ResolvedAt <= to.Value)))
+            .Project(x => new RentSyncSnapshot
+            {
+                Id = x.Id,
+                Records = x.Records.Where(record =>
+                    (record.Status == "overdue" || record.Status == "evictable") && record.ResolvedAt.HasValue &&
+                    (!from.HasValue || record.ResolvedAt >= from.Value) && (!to.HasValue || record.ResolvedAt <= to.Value))
+                    .Select(record => new RentSyncRecord
+                    {
+                        RowNumber = record.RowNumber, Status = record.Status, Address = record.Address,
+                        RenterName = record.RenterName, Cid = record.Cid, Income = record.Income,
+                        ResolvedAt = record.ResolvedAt, ResolvedByUserId = record.ResolvedByUserId,
+                    }).ToList(),
+            });
 
     public async Task SaveCurrentAsync(RentSyncSnapshot snapshot, CancellationToken ct)
     {

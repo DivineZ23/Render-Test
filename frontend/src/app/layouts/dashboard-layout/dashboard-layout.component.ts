@@ -1,8 +1,15 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { NgIf } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { interval } from 'rxjs';
+import { catchError, EMPTY, exhaustMap, filter, interval, startWith } from 'rxjs';
 import {
   LucideBell,
   LucideBadgeDollarSign,
@@ -94,10 +101,7 @@ import { PropertyService } from '../../core/services/property.service';
         ><strong>Imperial Estates</strong>
       </div>
       <nav aria-label="Dashboard sections">
-        <section
-          class="nav-section"
-          *ngIf="hasAny(['analytics', 'agentAnalytics'])"
-        >
+        <section class="nav-section" *ngIf="hasAny(['analytics', 'agentAnalytics'])">
           <button
             class="section-toggle"
             type="button"
@@ -791,12 +795,16 @@ export class DashboardLayoutComponent {
   constructor() {
     this.access.load().subscribe();
     if (this.auth.isManager()) {
-      this.properties.refreshBookingAnnouncementCount().subscribe({ error: () => undefined });
       interval(30_000)
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe(() =>
-          this.properties.refreshBookingAnnouncementCount().subscribe({ error: () => undefined }),
-        );
+        .pipe(
+          startWith(0),
+          filter(() => !document.hidden),
+          exhaustMap(() =>
+            this.properties.refreshBookingAnnouncementCount().pipe(catchError(() => EMPTY)),
+          ),
+          takeUntilDestroyed(this.destroyRef),
+        )
+        .subscribe();
     }
   }
   hasAny(resources: string[]): boolean {

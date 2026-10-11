@@ -87,11 +87,11 @@ public sealed class AuditLogService(
 
         var usersTask = users.GetByIdsAsync(actorIds, ct);
         var propertiesTask = properties.GetByIdsAsync(propertyIds, ct);
-        var blocksTask = blocks.GetAllAsync(false, ct);
-        var enquiriesTask = FetchAsync(enquiryIds, enquiries.GetByIdAsync, ct);
-        var applicationsTask = FetchAsync(applicationIds, recruitmentApplications.GetByIdAsync, ct);
-        var commissionsTask = FetchAsync(commissionIds, commissions.GetByIdAsync, ct);
-        var snapshotsTask = FetchAsync(snapshotIds, rentSync.GetByIdAsync, ct);
+        var blocksTask = blocks.GetByIdsAsync(EntityIds(page.Items, "block"), ct);
+        var enquiriesTask = enquiries.GetByIdsAsync(enquiryIds, ct);
+        var applicationsTask = recruitmentApplications.GetByIdsAsync(applicationIds, ct);
+        var commissionsTask = commissions.GetByIdsAsync(commissionIds, ct);
+        var snapshotsTask = rentSync.GetByIdsAsync(snapshotIds, ct);
         await Task.WhenAll(usersTask, propertiesTask, blocksTask, enquiriesTask,
             applicationsTask, commissionsTask, snapshotsTask);
 
@@ -261,15 +261,6 @@ public sealed class AuditLogService(
 
     private static string[] EntityIds(IEnumerable<AuditLog> logs, string entityType) =>
         logs.Where(x => x.EntityType == entityType).Select(x => x.EntityId).Distinct().ToArray();
-
-    private static async Task<IReadOnlyList<T>> FetchAsync<T>(
-        IEnumerable<string> ids,
-        Func<string, CancellationToken, Task<T?>> fetch,
-        CancellationToken ct) where T : class
-    {
-        var values = await Task.WhenAll(ids.Select(id => fetch(id, ct)));
-        return values.OfType<T>().ToList();
-    }
 
     private sealed record ActionPresentation(string Label, string Category, string Severity, string Verb);
 }

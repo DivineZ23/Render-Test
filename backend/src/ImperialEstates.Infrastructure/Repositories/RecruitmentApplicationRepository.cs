@@ -33,6 +33,9 @@ public sealed class RecruitmentApplicationRepository(MongoContext db) : IRecruit
     public Task<RecruitmentApplication?> GetByIdAsync(string id, CancellationToken ct) =>
         db.RecruitmentApplications.Find(x => x.Id == id && !x.IsDeleted).FirstOrDefaultAsync(ct)!;
 
+    public async Task<IReadOnlyList<RecruitmentApplication>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken ct) =>
+        ids.Count == 0 ? [] : await db.RecruitmentApplications.Find(x => ids.Contains(x.Id) && !x.IsDeleted).ToListAsync(ct);
+
     public async Task<bool> HasPendingAsync(int characterCid, string discordId, CancellationToken ct) =>
         await db.RecruitmentApplications.CountDocumentsAsync(
             x =>
