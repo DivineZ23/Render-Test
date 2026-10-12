@@ -141,13 +141,13 @@ public sealed class CommissionService(
     public async Task<CommissionOverviewDto> GetOverviewAsync(string actorId, CancellationToken ct)
     {
         var actor = await GetUserAsync(actorId, ct);
-        var canManage = actor.Role is UserRole.Manager or UserRole.Owner;
-        var recordsTask = canManage
+        var canViewAll = actor.Role is UserRole.Manager or UserRole.Owner or UserRole.StateManager;
+        var recordsTask = canViewAll
             ? commissions.GetAllAsync(ct)
             : commissions.GetByAgentAsync(actorId, ct);
 
         var eligibleUsers = new List<User>();
-        if (canManage)
+        if (canViewAll)
         {
             var agentsTask = GetEligibleUsersAsync(UserRole.Agent, ct);
             var seniorsTask = GetEligibleUsersAsync(UserRole.SeniorAgent, ct);

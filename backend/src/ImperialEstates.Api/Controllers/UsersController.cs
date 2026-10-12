@@ -18,6 +18,7 @@ public sealed class UsersController(UserManagementService service) : ControllerB
     [HttpGet("pending")]
     public Task<PagedResult<UserDto>> Pending([FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default) => service.QueryAsync(page, pageSize, ApprovalStatus.Pending, null, null, ct);
     [HttpPost("{id}/approve")] public Task<UserDto> Approve(string id, CancellationToken ct) => service.ApproveAsync(id, User.UserId(), ct);
+    [HttpPut("{id}/role")] public Task<UserDto> ChangeRole(string id, ChangeUserRoleRequest request, CancellationToken ct) => service.ChangeRoleAsync(id, request, User.UserId(), ct);
     [HttpPost("{id}/reject")] public Task<UserDto> Reject(string id, UserActionRequest request, CancellationToken ct) => service.RejectAsync(id, User.UserId(), request.Reason, ct);
     [HttpPost("{id}/promote")] public Task<UserDto> Promote(string id, CancellationToken ct) => service.PromoteAsync(id, User.UserId(), ct);
     [HttpPost("{id}/demote")] public Task<UserDto> Demote(string id, UserActionRequest request, CancellationToken ct) => service.DemoteAsync(id, User.UserId(), request.Reason, ct);

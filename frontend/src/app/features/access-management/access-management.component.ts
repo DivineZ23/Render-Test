@@ -3,6 +3,7 @@ import { NgFor } from '@angular/common';
 import { LucideLockKeyhole, LucideShieldCheck } from '@lucide/angular';
 import { UserRole } from '../../core/models/user.models';
 import { PageAccessService } from '../../core/services/page-access.service';
+import { AuthService } from '../../core/services/auth.service';
 import { USER_ROLES } from '../../core/constants/user-role.constants';
 import {
   ACCESS_SECTIONS,
@@ -24,7 +25,9 @@ import {
           navigation.
         </p>
       </div>
-      <span><svg lucideLockKeyhole></svg>Owner only</span>
+      <span
+        ><svg lucideLockKeyhole></svg>{{ auth.isOwner() ? 'Owner controls' : 'View only' }}</span
+      >
     </div>
     <div class="panel">
       <div class="intro">
@@ -33,8 +36,9 @@ import {
           <b>Navigation permissions</b>
           <p>
             Control a complete section at once or fine-tune its individual pages. Restricted roles
-            remain protected by server-side authorization. Access Management always stays visible
-            to the Owner so these choices can be restored.
+            remain protected by server-side authorization. Access Management always stays visible to
+            the Owner so these choices can be restored. State Managers can only view enabled pages;
+            actions cannot be granted to this role.
           </p>
         </div>
       </div>
@@ -57,6 +61,7 @@ import {
                   <label class="toggle section-toggle"
                     ><input
                       type="checkbox"
+                      [attr.aria-label]="section.label + ' access for ' + labels[role]"
                       [checked]="sectionAllowed(section, role)"
                       [indeterminate]="sectionPartiallyAllowed(section, role)"
                       [disabled]="!sectionConfigurable(section, role)"
@@ -74,6 +79,7 @@ import {
                   <label class="toggle"
                     ><input
                       type="checkbox"
+                      [attr.aria-label]="resource.label + ' access for ' + labels[role]"
                       [checked]="allowed(resource.key, role)"
                       [disabled]="!configurable(resource, role)"
                       (change)="toggle(resource.key, role, $any($event.target).checked)"
@@ -146,7 +152,7 @@ import {
       table {
         width: 100%;
         border-collapse: collapse;
-        min-width: 780px;
+        min-width: 980px;
       }
       th,
       td {
@@ -254,14 +260,16 @@ import {
   ],
 })
 export class AccessManagementComponent {
+  readonly auth = inject(AuthService);
   readonly access = inject(PageAccessService);
-  readonly roles: UserRole[] = ['agent', 'seniorAgent', 'manager', 'owner'];
+  readonly roles: UserRole[] = ['agent', 'seniorAgent', 'manager', 'stateManager', 'owner'];
   readonly labels = USER_ROLES;
   readonly sections = ACCESS_SECTIONS;
   allowed(key: string, role: UserRole) {
     return this.access.settings().permissions[key]?.[role] === true;
   }
   toggle(key: string, role: UserRole, allowed: boolean) {
+    if (!this.auth.isOwner()) return;
     const current = this.access.settings();
     const permissions = {
       ...current.permissions,
@@ -272,6 +280,7 @@ export class AccessManagementComponent {
 
   configurable(resource: AccessResourceDefinition, role: UserRole): boolean {
     return (
+      this.auth.isOwner() &&
       roleCanOpen(resource, role) &&
       !(role === 'owner' && resource.key === 'administration.accessManagement')
     );

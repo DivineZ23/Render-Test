@@ -20,6 +20,7 @@ public sealed class UserManagementService(IUserRepository users, IAuditRepositor
     public async Task<UserDto> UpdateProfileAsync(string id, UpdateUserProfileRequest request, CancellationToken ct)
     {
         var user = await GetEntityAsync(id, ct);
+        if (user.Role == UserRole.StateManager) throw new UnauthorizedAccessException();
         if (user.ApprovalStatus != ApprovalStatus.Approved || user.AccessStatus != AccessStatus.Active)
             throw new DomainRuleException("Your account must be approved and active before editing personal details.", "PROFILE_ACCESS_REQUIRED");
 
@@ -57,6 +58,30 @@ public sealed class UserManagementService(IUserRepository users, IAuditRepositor
         {
             user.ApprovalStatus = ApprovalStatus.Rejected; user.AccessStatus = AccessStatus.Revoked; user.RevokeReason = reason!.Trim();
         }, reason, ct);
+    }
+
+    public async Task<UserDto> ChangeRoleAsync(string id, ChangeUserRoleRequest request, string actorId, CancellationToken ct)
+    {
+        var actor = await GetEntityAsync(actorId, ct);
+        RequireOwner(actor);
+        if (id == actorId) throw new DomainRuleException("You cannot change your own role.", "SELF_ROLE_CHANGE_FORBIDDEN");
+        var target = await GetEntityAsync(id, ct);
+        ProtectOwner(target);
+        if (target.IsDeleted) throw new KeyNotFoundException("User not found.");
+        if (request.Role is not (UserRole.Agent or UserRole.SeniorAgent or UserRole.Manager or UserRole.StateManager))
+            throw new DomainRuleException("Choose Agent, Senior Agent, Manager or State Manager.", "INVALID_USER_ROLE");
+        RequireReason(request.Reason);
+        var previous = target.Role;
+        target.Role = request.Role;
+        target.UpdatedAt = DateTime.UtcNow;
+        target.UpdatedBy = actorId;
+        await users.UpdateAsync(target, ct);
+        await audits.CreateAsync(new AuditLog
+        {
+            Action = "user.role-changed", EntityType = "user", EntityId = id, PerformedByUserId = actorId,
+            Metadata = new() { ["previousRole"] = previous.ToString(), ["newRole"] = request.Role.ToString(), ["reason"] = request.Reason!.Trim() }
+        }, ct);
+        return target.ToDto();
     }
 
     public async Task<UserDto> PromoteAsync(string id, string actorId, CancellationToken ct)
@@ -136,8 +161,8 @@ public sealed class UserManagementService(IUserRepository users, IAuditRepositor
     private async Task<User> GetEntityAsync(string id, CancellationToken ct) => await users.GetByIdAsync(id, ct) ?? throw new KeyNotFoundException("User not found.");
     private static void RequireOwner(User actor)
     {
-        if (actor.Role != UserRole.Owner)
-            throw new DomainRuleException("Only the Owner can change Manager roles.", "OWNER_REQUIRED");
+        if (actor.Role != UserRole.Owner || actor.IsDeleted || actor.ApprovalStatus != ApprovalStatus.Approved || actor.AccessStatus != AccessStatus.Active)
+            throw new DomainRuleException("Only an active Owner can change user roles.", "OWNER_REQUIRED");
     }
     private static void ProtectOwner(User target)
     {
@@ -146,9 +171,10 @@ public sealed class UserManagementService(IUserRepository users, IAuditRepositor
     }
     private static void EnsureCanManageAccess(User actor, User target)
     {
+        if (actor.Role is not (UserRole.Manager or UserRole.Owner)) throw new UnauthorizedAccessException();
         ProtectOwner(target);
-        if (target.Role == UserRole.Manager && actor.Role != UserRole.Owner)
-            throw new DomainRuleException("Only the Owner can change a Manager's access.", "OWNER_REQUIRED");
+        if (target.Role is (UserRole.Manager or UserRole.StateManager) && actor.Role != UserRole.Owner)
+            throw new DomainRuleException("Only the Owner can change a Manager or State Manager's access.", "OWNER_REQUIRED");
     }
     private static void RequireReason(string? reason) { if (string.IsNullOrWhiteSpace(reason)) throw new DomainRuleException("A reason is required.", "REASON_REQUIRED"); }
 }

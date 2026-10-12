@@ -10,7 +10,8 @@ import {
   LucideUserCheck,
   LucideUserX,
 } from '@lucide/angular';
-import { User } from '../../core/models/user.models';
+import { User, UserRole } from '../../core/models/user.models';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { AuthService } from '../../core/services/auth.service';
 import { UserService } from '../../core/services/management.services';
 import { ConfirmDialogComponent } from '../../shared/components/confirm-dialog/confirm-dialog.component';
@@ -66,6 +67,25 @@ import { USER_ROLES } from '../../core/constants/user-role.constants';
           </div>
           <dl class="staff-details">
             <div>
+              <dt>Role</dt>
+              <dd>
+                @if (auth.isOwner() && user.role !== 'owner' && user.id !== auth.user()?.id) {
+                  <select
+                    [value]="user.role"
+                    [disabled]="changingRole() === user.id"
+                    [attr.aria-label]="'Role for ' + user.displayName"
+                    (change)="changeRole(user, $any($event.target))"
+                  >
+                    @for (role of assignableRoles; track role) {
+                      <option [value]="role">{{ roleLabel(role) }}</option>
+                    }
+                  </select>
+                } @else {
+                  {{ roleLabel(user.role) }}
+                }
+              </dd>
+            </div>
+            <div>
               <dt>Name</dt>
               <dd>{{ user.fullName || 'Not set' }}</dd>
             </div>
@@ -87,7 +107,7 @@ import { USER_ROLES } from '../../core/constants/user-role.constants';
             </div>
           </dl>
           <div class="actions">
-            @if (user.approvalStatus === 'pending') {
+            @if (user.approvalStatus === 'pending' && canChangeAccess(user)) {
               <button (click)="simple(user, 'approve')"><svg lucideUserCheck></svg>Approve</button
               ><button class="danger" (click)="reason(user, 'reject')">
                 <svg lucideUserX></svg>Reject
@@ -353,6 +373,9 @@ export class UserManagementComponent {
   readonly auth = inject(AuthService);
   private service = inject(UserService);
   private dialog = inject(MatDialog);
+  private snackBar = inject(MatSnackBar);
+  readonly changingRole = signal<string | null>(null);
+  readonly assignableRoles: UserRole[] = ['agent', 'seniorAgent', 'manager', 'stateManager'];
   readonly users = signal<User[]>([]);
   readonly activeTab = signal('pending');
   readonly pendingCount = signal(0);
@@ -362,6 +385,7 @@ export class UserManagementComponent {
     { key: 'agents', label: 'Active agents' },
     { key: 'seniorAgents', label: 'Senior agents' },
     { key: 'managers', label: 'Managers' },
+    { key: 'stateManagers', label: 'State Managers' },
     { key: 'owners', label: 'Owner' },
     { key: 'revoked', label: 'Revoked' },
     { key: 'rejected', label: 'Rejected' },
@@ -384,16 +408,56 @@ export class UserManagementComponent {
               }
             : this.activeTab() === 'managers'
               ? { approval: 'approved' as const, role: 'manager' as const }
-              : this.activeTab() === 'owners'
-                ? { approval: 'approved' as const, role: 'owner' as const }
-                : this.activeTab() === 'revoked'
-                  ? { access: 'revoked' as const }
-                  : { approval: 'rejected' as const };
+              : this.activeTab() === 'stateManagers'
+                ? { approval: 'approved' as const, role: 'stateManager' as const }
+                : this.activeTab() === 'owners'
+                  ? { approval: 'approved' as const, role: 'owner' as const }
+                  : this.activeTab() === 'revoked'
+                    ? { access: 'revoked' as const }
+                    : { approval: 'rejected' as const };
     this.service.all(filters).subscribe((v) => this.users.set(v.items));
   }
   canChangeAccess(user: User): boolean {
+    if (!this.auth.isManager()) return false;
     if (user.role === 'owner' || user.id === this.auth.user()?.id) return false;
     return this.auth.isOwner() || user.role === 'agent' || user.role === 'seniorAgent';
+  }
+  changeRole(user: User, select: HTMLSelectElement) {
+    const role = select.value as UserRole;
+    select.value = user.role;
+    if (!this.auth.isOwner() || role === user.role || !this.assignableRoles.includes(role)) return;
+    this.dialog
+      .open(ConfirmDialogComponent, {
+        data: {
+          title: `Change ${user.displayName} to ${this.roleLabel(role)}?`,
+          message:
+            role === 'stateManager'
+              ? 'This role is strictly view only. Enable its pages in Access Management. The change takes effect immediately.'
+              : 'This changes the user’s permissions immediately and is recorded in the audit log.',
+          requireReason: true,
+          dangerous: true,
+          confirmLabel: 'Change role',
+        },
+      })
+      .afterClosed()
+      .subscribe((result) => {
+        if (!result?.confirmed) return;
+        this.changingRole.set(user.id);
+        this.service.changeRole(user.id, role, result.reason).subscribe({
+          next: () => {
+            this.changingRole.set(null);
+            this.load();
+          },
+          error: (response) => {
+            this.changingRole.set(null);
+            this.snackBar.open(
+              response?.error?.message || 'Could not change the role.',
+              'Dismiss',
+              { duration: 4000 },
+            );
+          },
+        });
+      });
   }
   simple(user: User, action: 'approve' | 'promote' | 'restore') {
     this.confirm(user, action, false);

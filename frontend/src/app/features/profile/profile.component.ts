@@ -56,7 +56,7 @@ import { AuthService } from '../../core/services/auth.service';
                 } @else {
                   <span class="incomplete">Profile incomplete</span>
                 }
-                @if (!editing()) {
+                @if (!editing() && !auth.isReadOnly()) {
                   <button class="edit-button" type="button" (click)="edit()">
                     <svg lucidePencil></svg>
                     Edit
@@ -488,6 +488,7 @@ export class ProfileComponent {
   }
 
   edit() {
+    if (this.auth.isReadOnly()) return;
     const user = this.auth.user();
     if (!user) return;
 
@@ -515,6 +516,7 @@ export class ProfileComponent {
   }
 
   save() {
+    if (this.auth.isReadOnly()) return;
     if (this.form.invalid || !this.auth.isApproved()) {
       this.form.markAllAsTouched();
       return;

@@ -22,6 +22,7 @@ public sealed class AuditLogService(
             ["user.approved"] = new("User approved", "access", "success", "Approved"),
             ["user.rejected"] = new("User rejected", "access", "danger", "Rejected"),
             ["user.promoted"] = new("User promoted", "access", "success", "Promoted"),
+            ["user.role-changed"] = new("User role changed", "access", "warning", "Changed role for"),
             ["user.demoted"] = new("User demoted", "access", "warning", "Demoted"),
             ["user.revoked"] = new("Access revoked", "access", "danger", "Revoked access for"),
             ["user.restored"] = new("Access restored", "access", "success", "Restored access for"),

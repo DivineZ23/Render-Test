@@ -5,4 +5,5 @@ export const USER_ROLES: Record<UserRole, string> = {
   seniorAgent: 'Senior Agent',
   manager: 'Manager',
   owner: 'Owner',
+  stateManager: 'State Manager',
 };

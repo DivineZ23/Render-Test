@@ -121,6 +121,7 @@ export const ACCESS_SECTIONS: AccessSectionDefinition[] = [
 ];
 
 const ROLE_LEVEL: Record<UserRole, number> = {
+  stateManager: -1,
   agent: 0,
   seniorAgent: 1,
   manager: 2,
@@ -135,6 +136,7 @@ const TIER_LEVEL: Record<AccessTier, number> = {
 };
 
 export function roleCanOpen(resource: AccessResourceDefinition, role: UserRole): boolean {
+  if (role === 'stateManager') return !resource.child && resource.key !== 'auction.createListing';
   return ROLE_LEVEL[role] >= TIER_LEVEL[resource.tier];
 }
 
@@ -143,6 +145,7 @@ export function defaultAccessSettings(): AccessManagementSettings {
   for (const section of ACCESS_SECTIONS) {
     for (const resource of section.resources) {
       permissions[resource.key] = {
+        stateManager: false,
         agent: roleCanOpen(resource, 'agent'),
         seniorAgent: roleCanOpen(resource, 'seniorAgent'),
         manager: roleCanOpen(resource, 'manager'),

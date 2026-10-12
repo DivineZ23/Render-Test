@@ -190,6 +190,8 @@ type LedgerFilter = 'outstanding' | 'received' | 'all';
           </form>
         </section>
 
+      }
+      @if (auth.canViewManagement()) {
         <section class="agents-section">
           <div class="section-heading compact"><div><p class="eyebrow">Agent balances</p><h2>Commission owed to agents</h2></div></div>
           <div class="agent-grid">
@@ -218,12 +220,12 @@ type LedgerFilter = 'outstanding' | 'received' | 'all';
         @if (filteredRecords().length) {
           <div class="panel table-wrap">
             <table>
-              <thead><tr><th>Auction</th>@if (auth.isManager()) {<th>Agent</th>}<th>Position</th><th>Base share</th><th>Premium share</th><th>Total payout</th><th>Status</th>@if (auth.isManager()) {<th>Actions</th>}</tr></thead>
+              <thead><tr><th>Auction</th>@if (auth.canViewManagement()) {<th>Agent</th>}<th>Position</th><th>Base share</th><th>Premium share</th><th>Total payout</th><th>Status</th>@if (auth.isManager()) {<th>Actions</th>}</tr></thead>
               <tbody>
                 @for (record of filteredRecords(); track record.id) {
                   <tr [class.received-row]="record.isPaid">
                     <td><strong>{{ record.auctionReference }}</strong><small>{{ record.createdAt | date: 'mediumDate' }} · {{ record.finalAuctionPrice | currency: 'USD' : 'symbol' : '1.0-2' }}</small></td>
-                    @if (auth.isManager()) {<td><strong>{{ record.agentDisplayName }}</strong><small>{{ roleLabel(record.agentRole) }}</small></td>}
+                    @if (auth.canViewManagement()) {<td><strong>{{ record.agentDisplayName }}</strong><small>{{ roleLabel(record.agentRole) }}</small></td>}
                     <td><span class="position" [class.winner]="record.isWinningAgent">{{ record.isWinningAgent ? 'Winner' : 'Participant' }}</span></td>
                     <td>{{ record.baseShare | currency: 'USD' : 'symbol' : '1.0-2' }}</td>
                     <td>{{ record.premiumShare | currency: 'USD' : 'symbol' : '1.0-2' }}</td>

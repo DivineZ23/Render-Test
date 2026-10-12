@@ -83,10 +83,12 @@ app.UseMiddleware<ApiTimingMiddleware>();
 app.UseResponseCompression();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseSerilogRequestLogging();
+app.UseRouting();
 app.UseCors("Frontend");
 app.UseRateLimiter();
 app.UseStaticFiles();
 app.UseAuthentication();
+app.UseMiddleware<StateManagerAccessMiddleware>();
 app.UseAuthorization();
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
 app.MapControllers();

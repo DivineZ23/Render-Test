@@ -26,7 +26,7 @@ export const managerGuard: CanActivateFn = () => {
     .loadCurrentUser()
     .pipe(
       map((user) =>
-        (user?.role === 'manager' || user?.role === 'owner') &&
+        (user?.role === 'manager' || user?.role === 'owner' || user?.role === 'stateManager') &&
         user.approvalStatus === 'approved' &&
         user.accessStatus === 'active'
           ? true
@@ -42,7 +42,7 @@ export const pageAccessGuard: CanActivateFn = (route: ActivatedRouteSnapshot) =>
   const parentResource = route.data['parentAccessKey'] as string | undefined;
   if (!resource) return true;
   return access
-    .load()
+    .load(access.role() === 'stateManager')
     .pipe(
       map(() =>
         access.canAccess(resource) && (!parentResource || access.canAccess(parentResource))

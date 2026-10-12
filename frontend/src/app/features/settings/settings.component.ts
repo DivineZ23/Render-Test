@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { LucidePlus, LucideSave, LucideTrash2 } from '@lucide/angular';
 import { TeamMember } from '../../core/models/user.models';
 import { SettingsService } from '../../core/services/management.services';
+import { AuthService } from '../../core/services/auth.service';
 import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme-toggle.component';
 @Component({
   selector: 'app-settings',
@@ -25,7 +26,7 @@ import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme
             <h2>Public team</h2>
             <p>These cards appear on the About page.</p>
           </div>
-          <button class="btn btn-secondary" (click)="add()">
+          <button class="btn btn-secondary" [disabled]="!auth.isManager()" (click)="add()">
             <svg lucidePlus></svg>Add member
           </button>
         </header>
@@ -34,14 +35,14 @@ import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme
             <article>
               <div class="member-avatar"><img [src]="member.imageUrl" alt="" /></div>
               <div class="member-fields">
-                <label class="field"><span>Name</span><input [(ngModel)]="member.name" /></label>
-                <label class="field"><span>Title</span><input [(ngModel)]="member.title" /></label>
+                <label class="field"><span>Name</span><input [readOnly]="!auth.isManager()" [(ngModel)]="member.name" /></label>
+                <label class="field"><span>Title</span><input [readOnly]="!auth.isManager()" [(ngModel)]="member.title" /></label>
                 <label class="field wide"
                   ><span>Biography</span
-                  ><textarea rows="2" [(ngModel)]="member.biography"></textarea>
+                  ><textarea rows="2" [readOnly]="!auth.isManager()" [(ngModel)]="member.biography"></textarea>
                 </label>
                 <label class="field wide"
-                  ><span>Image URL</span><input [(ngModel)]="member.imageUrl"
+                  ><span>Image URL</span><input [readOnly]="!auth.isManager()" [(ngModel)]="member.imageUrl"
                 /></label>
               </div>
               <button
@@ -49,13 +50,14 @@ import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme
                 type="button"
                 (click)="remove(index)"
                 aria-label="Remove team member"
+                [disabled]="!auth.isManager()"
               >
                 <svg lucideTrash2></svg>
               </button>
             </article>
           }
         </div>
-        <button class="btn btn-primary save" [disabled]="saving()" (click)="save()">
+        <button class="btn btn-primary save" [disabled]="!auth.isManager() || saving()" (click)="save()">
           <svg lucideSave></svg>{{ saving() ? 'Saving…' : 'Save public team' }}
         </button>
       </section>
@@ -214,6 +216,7 @@ import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme
   ],
 })
 export class SettingsComponent {
+  readonly auth = inject(AuthService);
   private settings = inject(SettingsService);
   readonly members = signal<TeamMember[]>([]);
   readonly saving = signal(false);

@@ -11,6 +11,55 @@ namespace ImperialEstates.Tests.Services;
 public sealed class UserManagementServiceTests
 {
     [Fact]
+    public async Task Owner_can_assign_and_remove_state_manager_role_with_audit()
+    {
+        var owner = ActiveOwner("owner");
+        var target = ActiveManager("target");
+        var audits = new FakeAuditRepository();
+        var service = new UserManagementService(new FakeUserRepository([owner, target]), audits);
+        var result = await service.ChangeRoleAsync(target.Id, new(UserRole.StateManager, "Observer access"), owner.Id, default);
+        Assert.Equal(UserRole.StateManager, result.Role);
+        Assert.False(UserRole.StateManager.CanEvict());
+        Assert.Contains(audits.Values, x => x.Action == "user.role-changed" && Equals(x.Metadata!["newRole"], "StateManager"));
+        result = await service.ChangeRoleAsync(target.Id, new(UserRole.Agent, "Return to agent"), owner.Id, default);
+        Assert.Equal(UserRole.Agent, result.Role);
+    }
+
+    [Theory]
+    [InlineData(UserRole.Manager)]
+    [InlineData(UserRole.StateManager)]
+    [InlineData(UserRole.Agent)]
+    public async Task Only_owner_can_assign_roles(UserRole role)
+    {
+        var actor = ActiveManager("actor"); actor.Role = role;
+        var target = ActiveManager("target");
+        var service = new UserManagementService(new FakeUserRepository([actor, target]), new FakeAuditRepository());
+        var error = await Assert.ThrowsAsync<DomainRuleException>(() => service.ChangeRoleAsync(target.Id, new(UserRole.StateManager, "Reason"), actor.Id, default));
+        Assert.Equal("OWNER_REQUIRED", error.ErrorCode);
+    }
+
+    [Theory]
+    [InlineData(UserRole.Owner)]
+    [InlineData((UserRole)999)]
+    public async Task Role_assignment_cannot_create_owner_or_unknown_roles(UserRole role)
+    {
+        var owner = ActiveOwner("owner"); var target = ActiveManager("target");
+        var service = new UserManagementService(new FakeUserRepository([owner, target]), new FakeAuditRepository());
+        var error = await Assert.ThrowsAsync<DomainRuleException>(() => service.ChangeRoleAsync(target.Id, new(role, "Reason"), owner.Id, default));
+        Assert.Equal("INVALID_USER_ROLE", error.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Owner_role_assignment_protects_self_other_owners_and_requires_reason()
+    {
+        var owner = ActiveOwner("owner"); var other = ActiveOwner("other"); var target = ActiveManager("target");
+        var service = new UserManagementService(new FakeUserRepository([owner, other, target]), new FakeAuditRepository());
+        Assert.Equal("SELF_ROLE_CHANGE_FORBIDDEN", (await Assert.ThrowsAsync<DomainRuleException>(() => service.ChangeRoleAsync(owner.Id, new(UserRole.StateManager, "Reason"), owner.Id, default))).ErrorCode);
+        Assert.Equal("OWNER_PROTECTED", (await Assert.ThrowsAsync<DomainRuleException>(() => service.ChangeRoleAsync(other.Id, new(UserRole.StateManager, "Reason"), owner.Id, default))).ErrorCode);
+        Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainRuleException>(() => service.ChangeRoleAsync(target.Id, new(UserRole.StateManager, ""), owner.Id, default))).ErrorCode);
+    }
+
+    [Fact]
     public async Task Owner_can_demote_a_manager()
     {
         var manager = ActiveManager("manager-1");

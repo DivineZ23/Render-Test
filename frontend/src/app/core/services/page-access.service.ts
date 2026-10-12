@@ -1,7 +1,11 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { catchError, Observable, of, shareReplay, tap } from 'rxjs';
 import { AccessManagementSettings, UserRole } from '../models/user.models';
-import { defaultAccessSettings } from '../constants/access-resource.constants';
+import {
+  ACCESS_SECTIONS,
+  defaultAccessSettings,
+  roleCanOpen,
+} from '../constants/access-resource.constants';
 import { AccessManagementService } from './management.services';
 import { AuthService } from './auth.service';
 
@@ -45,7 +49,11 @@ export class PageAccessService {
   readonly loaded = signal(false);
   readonly role = computed(() => this.auth.user()?.role);
 
-  load(): Observable<AccessManagementSettings> {
+  load(force = false): Observable<AccessManagementSettings> {
+    if (force) {
+      this.loaded.set(false);
+      this.request$ = undefined;
+    }
     if (this.loaded()) return of(this.state());
     return (this.request$ ??= this.api.get().pipe(
       tap((settings) => {
@@ -53,6 +61,7 @@ export class PageAccessService {
         this.loaded.set(true);
       }),
       catchError(() => {
+        if (this.role() === 'stateManager') this.state.set(DEFAULTS);
         this.loaded.set(true);
         return of(this.state());
       }),
@@ -62,12 +71,14 @@ export class PageAccessService {
   canAccess(resource: string): boolean {
     const role = this.role();
     if (!role) return false;
+    const definition = ACCESS_SECTIONS.flatMap((section) => section.resources).find(
+      (item) => item.key === resource,
+    );
+    if (!definition || !roleCanOpen(definition, role)) return false;
     return this.state().permissions[resource]?.[role] === true;
   }
   firstAccessibleUrl(): string {
-    return (
-      DASHBOARD_DESTINATIONS.find(([resource]) => this.canAccess(resource))?.[1] ?? '/'
-    );
+    return DASHBOARD_DESTINATIONS.find(([resource]) => this.canAccess(resource))?.[1] ?? '/';
   }
   save(settings: AccessManagementSettings): Observable<AccessManagementSettings> {
     return this.api.update(settings).pipe(tap((saved) => this.state.set(saved)));

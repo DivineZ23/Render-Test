@@ -1,4 +1,5 @@
 using ImperialEstates.Api.Controllers;
+using ImperialEstates.Api.Authorization;
 using ImperialEstates.Application.Interfaces;
 using ImperialEstates.Domain.Entities;
 
@@ -6,6 +7,20 @@ namespace ImperialEstates.Tests.Controllers;
 
 public sealed class AccessManagementControllerTests
 {
+    [Fact]
+    public void State_manager_defaults_deny_all_and_grants_cannot_enable_actions()
+    {
+        Assert.All(AccessPermissions.DefaultPermissions().Values, roles => Assert.False(roles["stateManager"]));
+        var stored = AccessPermissions.DefaultPermissions();
+        foreach (var roles in stored.Values) roles["stateManager"] = true;
+        var normalized = AccessPermissions.Normalize(stored);
+        Assert.True(normalized["agentAnalytics"]["stateManager"]);
+        Assert.True(normalized["administration.users"]["stateManager"]);
+        Assert.False(normalized["portfolio.properties.evict"]["stateManager"]);
+        Assert.False(normalized["portfolio.properties.book"]["stateManager"]);
+        Assert.False(normalized["auction.createListing"]["stateManager"]);
+    }
+
     [Fact]
     public async Task Get_preserves_owner_navigation_choices_but_protects_access_management()
     {

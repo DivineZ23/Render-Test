@@ -1,5 +1,6 @@
 import { DatePipe, TitleCasePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { AuthService } from '../../core/services/auth.service';
 import { MatDialog } from '@angular/material/dialog';
 import { ActivatedRoute } from '@angular/router';
 import {
@@ -39,7 +40,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
             type="button"
             class="recruitment-toggle"
             [class.closed]="!recruitmentEnabled()"
-            [disabled]="savingSettings()"
+            [disabled]="!auth.isManager() || savingSettings()"
             [attr.aria-pressed]="recruitmentEnabled()"
             (click)="toggleRecruitment()"
           >
@@ -114,7 +115,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
             </div>
           }
 
-          <footer>
+          @if (auth.isManager()) { <footer>
             @if (application.status === 'pending') {
               <button class="btn accept" (click)="review(application, 'accepted')">
                 <svg lucideUserRoundCheck></svg>Accept application
@@ -127,7 +128,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                 <svg lucideRotateCcw></svg>Return to pending
               </button>
             }
-          </footer>
+          </footer> }
         </article>
       } @empty {
         <app-empty-state
@@ -409,6 +410,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
   ],
 })
 export class RecruitmentApplicationsComponent {
+  readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly recruitment = inject(RecruitmentService);
   private readonly dialog = inject(MatDialog);

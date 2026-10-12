@@ -6,6 +6,22 @@ import { PageAccessService } from '../services/page-access.service';
 import { authGuard, managerGuard, pageAccessGuard } from './auth.guard';
 
 describe('route guards', () => {
+  it('allows approved State Managers to reach page-permission checks for management pages', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        {
+          provide: AuthService,
+          useValue: {
+            loadCurrentUser: () =>
+              of({ role: 'stateManager', approvalStatus: 'approved', accessStatus: 'active' }),
+          },
+        },
+      ],
+    });
+    expect(await firstValueFrom(run(managerGuard) as never)).toBe(true);
+  });
+
   const run = (guard: typeof authGuard, route: object = {}) =>
     TestBed.runInInjectionContext(() => guard(route as never, {} as never));
 
@@ -66,6 +82,7 @@ describe('route guards', () => {
         {
           provide: PageAccessService,
           useValue: {
+            role: () => 'owner',
             load: () => of({ permissions: {} }),
             canAccess: (resource: string) => resource === 'portfolio.properties.sell',
             firstAccessibleUrl: () => '/dashboard',
@@ -93,6 +110,7 @@ describe('route guards', () => {
         {
           provide: PageAccessService,
           useValue: {
+            role: () => 'owner',
             load: () => of({ permissions: {} }),
             canAccess: () => true,
           },

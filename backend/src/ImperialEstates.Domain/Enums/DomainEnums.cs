@@ -66,7 +66,7 @@ public static class PropertyTypeMetadata
 }
 public enum TenantStatus { Active, Evicted, Ended }
 // Explicit values preserve the roles already stored as numeric enum values in MongoDB.
-public enum UserRole { Agent = 0, Manager = 1, Owner = 2, SeniorAgent = 3 }
+public enum UserRole { Agent = 0, Manager = 1, Owner = 2, SeniorAgent = 3, StateManager = 4 }
 public static class UserRolePermissions
 {
     public static bool CanEvict(this UserRole role) =>

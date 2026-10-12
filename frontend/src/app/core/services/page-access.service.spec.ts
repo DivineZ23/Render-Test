@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { firstValueFrom, of } from 'rxjs';
+import { firstValueFrom, of, throwError } from 'rxjs';
 import { defaultAccessSettings } from '../constants/access-resource.constants';
 import { User } from '../models/user.models';
 import { AuthService } from './auth.service';
@@ -7,6 +7,29 @@ import { AccessManagementService } from './management.services';
 import { PageAccessService } from './page-access.service';
 
 describe('PageAccessService', () => {
+  it('State Manager is denied by default, can receive pages but never actions, and fails closed on refresh errors', async () => {
+    const settings = defaultAccessSettings();
+    const get = vi.fn(() => of(settings));
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: AuthService, useValue: { user: () => ({ role: 'stateManager' }) } },
+        { provide: AccessManagementService, useValue: { get } },
+      ],
+    });
+    const service = TestBed.inject(PageAccessService);
+    await firstValueFrom(service.load());
+    expect(service.firstAccessibleUrl()).toBe('/');
+    settings.permissions['agentAnalytics'].stateManager = true;
+    settings.permissions['portfolio.properties.book'].stateManager = true;
+    await firstValueFrom(service.load(true));
+    expect(service.canAccess('agentAnalytics')).toBe(true);
+    expect(service.canAccess('portfolio.properties.book')).toBe(false);
+    expect(service.firstAccessibleUrl()).toBe('/dashboard/agent-analytics');
+    get.mockReturnValue(throwError(() => new Error('Connection lost')));
+    await firstValueFrom(service.load(true));
+    expect(service.canAccess('agentAnalytics')).toBe(false);
+  });
+
   const owner = { role: 'owner' } as User;
 
   function configure(ownerPermissions: Record<string, boolean>) {

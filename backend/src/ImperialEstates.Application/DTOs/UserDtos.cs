@@ -19,6 +19,7 @@ public sealed record AccessManagementDto(Dictionary<string, Dictionary<string, b
 public sealed record TeamMemberDto(string Id, string Name, string Title, string Biography, string ImageUrl);
 
 public sealed record UserActionRequest(string? Reason);
+public sealed record ChangeUserRoleRequest(UserRole Role, string? Reason);
 public sealed record UpdateUserProfileRequest(string FullName, int Cid, string PhoneNumber);
 public sealed record DiscordProfile(string Id, string Username, string DisplayName, string? AvatarUrl, string? Email);
 public sealed record AuthResult(UserDto User, string AccessToken, DateTime ExpiresAt);

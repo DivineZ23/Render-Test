@@ -1,4 +1,4 @@
-export type UserRole = 'agent' | 'seniorAgent' | 'manager' | 'owner';
+export type UserRole = 'agent' | 'seniorAgent' | 'manager' | 'owner' | 'stateManager';
 
 export interface AccessManagementSettings {
   permissions: Record<string, Partial<Record<UserRole, boolean>>>;

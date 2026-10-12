@@ -182,7 +182,7 @@ import { EvictTenantDialogComponent } from './evict-tenant-dialog.component';
                     </a>
                   }
                   @if (
-                    property.status === 'booked' ||
+                    (!auth.isReadOnly() && property.status === 'booked') ||
                     (auth.isManager() &&
                       (property.status === 'auction' || property.status === 'onHold'))
                   ) {

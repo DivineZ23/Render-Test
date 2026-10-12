@@ -595,7 +595,7 @@ interface EvictionDayGroup {
                           <input
                             type="checkbox"
                             [checked]="record.isResolved"
-                            [disabled]="!!resolvingRow() || pageLoading()"
+                            [disabled]="auth.isReadOnly() || !!resolvingRow() || pageLoading()"
                             (change)="setResolution(group, item, $any($event.target).checked)"
                           />
                           <span>Mark as resolved</span>
@@ -1370,6 +1370,7 @@ export class NoticesComponent {
   }
 
   setResolution(group: NoticeDayGroup, item: NoticeRecordItem, isResolved: boolean) {
+    if (this.auth.isReadOnly()) return;
     const { snapshotId, record } = item;
     const key = this.recordKey(snapshotId, record);
     if (this.resolvingRow() || this.pageLoading()) return;

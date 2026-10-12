@@ -58,7 +58,7 @@ describe('Notice page request budget', () => {
         { provide: NoticeService, useValue: notices },
         { provide: TeamService, useValue: team },
         { provide: TenantService, useValue: tenants },
-        { provide: AuthService, useValue: {} },
+        { provide: AuthService, useValue: { isReadOnly: () => false } },
         { provide: PageAccessService, useValue: {} },
         { provide: PropertyService, useValue: {} },
         { provide: MatDialog, useValue: {} },

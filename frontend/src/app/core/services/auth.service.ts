@@ -19,6 +19,10 @@ export class AuthService {
     () => this.isApproved() && ['manager', 'owner'].includes(this.state()?.role ?? ''),
   );
   readonly isOwner = computed(() => this.isApproved() && this.state()?.role === 'owner');
+  readonly isReadOnly = computed(() => this.state()?.role === 'stateManager');
+  readonly canViewManagement = computed(
+    () => this.isApproved() && (this.isManager() || this.isReadOnly()),
+  );
   readonly canEvict = computed(
     () =>
       this.isApproved() && ['seniorAgent', 'manager', 'owner'].includes(this.state()?.role ?? ''),

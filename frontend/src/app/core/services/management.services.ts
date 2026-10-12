@@ -140,6 +140,9 @@ export class AccessManagementService {
 @Injectable({ providedIn: 'root' })
 export class UserService {
   private readonly api = inject(ApiService);
+  changeRole(id: string, role: UserRole, reason: string): Observable<User> {
+    return this.api.put(`${API_ENDPOINTS.users}/${id}/role`, { role, reason });
+  }
   all(
     filters: { approval?: ApprovalStatus; access?: AccessStatus; role?: UserRole } = {},
   ): Observable<PagedResult<User>> {

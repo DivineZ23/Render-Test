@@ -122,7 +122,7 @@ import { PropertyService } from '../../core/services/property.service';
                 <svg lucideChartNoAxesCombined></svg><b>My Analytics</b>
               </a>
               <a
-                *ngIf="auth.isManager() && access.canAccess('agentAnalytics')"
+                *ngIf="auth.canViewManagement() && access.canAccess('agentAnalytics')"
                 routerLink="/dashboard/agent-analytics"
                 routerLinkActive="active"
               >
@@ -310,7 +310,7 @@ import { PropertyService } from '../../core/services/property.service';
               >
                 <svg lucideListX></svg><b>Eviction History</b>
               </a>
-              <ng-container *ngIf="auth.isManager() && access.canAccess('notices.sync')">
+              <ng-container *ngIf="auth.canViewManagement() && access.canAccess('notices.sync')">
                 <a routerLink="/dashboard/notices/sync" routerLinkActive="active">
                   <svg lucideUploadCloud></svg><b>Data Sync</b>
                 </a>
@@ -328,7 +328,7 @@ import { PropertyService } from '../../core/services/property.service';
         <section
           class="nav-section"
           *ngIf="
-            auth.isManager() &&
+            auth.canViewManagement() &&
             hasAny(['recruitment.pending', 'recruitment.accepted', 'recruitment.rejected'])
           "
         >
@@ -370,7 +370,7 @@ import { PropertyService } from '../../core/services/property.service';
         </section>
         <ng-container
           *ngIf="
-            auth.isManager() &&
+            auth.canViewManagement() &&
             hasAny([
               'administration.users',
               'administration.auditLogs',
@@ -468,12 +468,18 @@ import { PropertyService } from '../../core/services/property.service';
           ><button (click)="auth.logout()"><svg lucideLogOut></svg><span>Sign out</span></button>
         </div>
       </header>
-      <main><router-outlet /></main>
+      <main>
+        @if (auth.isReadOnly()) {
+          <p class="read-only-notice" role="note">State Manager · View-only access. Page access is managed by the Owner.</p>
+        }
+        <router-outlet />
+      </main>
       <app-site-credit />
     </section>
   </div>`,
   styles: [
     `
+      .read-only-notice { margin: 0 0 18px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: .8rem; }
       .shell {
         min-height: 100vh;
         display: grid;
