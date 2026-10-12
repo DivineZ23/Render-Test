@@ -2,6 +2,7 @@ using ImperialEstates.Application.Common;
 using ImperialEstates.Application.DTOs;
 using ImperialEstates.Application.Interfaces;
 using ImperialEstates.Application.Services;
+using ImperialEstates.Application.Validators;
 using ImperialEstates.Domain.Entities;
 using ImperialEstates.Domain.Enums;
 using ImperialEstates.Domain.Exceptions;
@@ -10,6 +11,77 @@ namespace ImperialEstates.Tests.Services;
 
 public sealed class CommissionServiceTests
 {
+    [Theory]
+    [InlineData(110000, 10000, 12000)]
+    [InlineData(10000, 10000, 0)]
+    [InlineData(0, 0, 0)]
+    [InlineData(3000000, 0, 100000)]
+    public void No_winners_leaves_base_and_winner_share_with_company(decimal final, decimal basis, decimal participants)
+    {
+        var result = CommissionService.Calculate(final, basis, 3, 0);
+        Assert.Equal(0, result.WinningAgentCount);
+        Assert.Equal(0, result.WinningAgentBaseShare);
+        Assert.Equal(0, result.WinningAgentClosingShare);
+        Assert.Equal(0, result.WinningAgentTotal);
+        Assert.Equal(0, result.AmountPerWinningAgent);
+        Assert.Equal(participants, result.ParticipationPool);
+        Assert.Equal(final - participants, result.CompanyShare);
+        Assert.Equal(final, result.CompanyShare + result.ParticipationPool);
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(2, -1)]
+    [InlineData(2, 3)]
+    public void Invalid_agent_counts_are_rejected(int agents, int winners) =>
+        Assert.Throws<DomainRuleException>(() => CommissionService.Calculate(110000, 10000, agents, winners));
+
+    [Fact]
+    public void Validators_allow_no_winners_but_require_participants()
+    {
+        var preview = new PreviewAuctionCommissionRequestValidator();
+        Assert.True(preview.Validate(new PreviewAuctionCommissionRequest(110000, 10000, 1, 0)).IsValid);
+        Assert.False(preview.Validate(new PreviewAuctionCommissionRequest(110000, 10000, 0, 0)).IsValid);
+        var settlement = new CreateAuctionSettlementRequestValidator();
+        Assert.True(settlement.Validate(new CreateAuctionSettlementRequest("House", 110000, 10000, [], ["agent"])).IsValid);
+        Assert.False(settlement.Validate(new CreateAuctionSettlementRequest("House", 110000, 10000, [], [])).IsValid);
+        Assert.False(settlement.Validate(new CreateAuctionSettlementRequest("House", 110000, 10000, [], [""])).IsValid);
+    }
+
+    [Fact]
+    public async Task No_winner_settlement_can_be_saved_edited_and_deleted_with_exact_payout_total()
+    {
+        var manager = ActiveUser("manager", UserRole.Manager);
+        var agents = Enumerable.Range(1, 7).Select(i => ActiveUser($"agent-{i}", UserRole.Agent)).ToArray();
+        var fixture = new Fixture([manager, .. agents]);
+        var request = new CreateAuctionSettlementRequest("House", 110000, 10000, [], agents.Select(x => x.Id).ToArray());
+        var created = await fixture.Service.CreateSettlementAsync(request, manager.Id, default);
+        Assert.Equal(7, created.Count);
+        Assert.All(created, row => { Assert.False(row.IsWinningAgent); Assert.Equal(0, row.BaseShare); });
+        Assert.Equal(12000, created.Sum(x => x.CommissionAmount));
+        Assert.Equal(12000, (await fixture.Service.GetOverviewAsync(manager.Id, default)).TotalOutstanding);
+
+        var withWinner = await fixture.Service.UpdateSettlementAsync(created[0].SettlementId,
+            request with { WinningAgentUserIds = [agents[0].Id] }, manager.Id, default);
+        Assert.Single(withWinner.Where(x => x.IsWinningAgent));
+        var withoutWinner = await fixture.Service.UpdateSettlementAsync(created[0].SettlementId, request, manager.Id, default);
+        Assert.All(withoutWinner, row => Assert.False(row.IsWinningAgent));
+        Assert.Equal(12000, withoutWinner.Sum(x => x.CommissionAmount));
+        await fixture.Service.DeleteSettlementAsync(created[0].SettlementId, manager.Id, default);
+        Assert.Empty((await fixture.Service.GetOverviewAsync(manager.Id, default)).Records);
+    }
+
+    [Fact]
+    public async Task Settlement_with_no_agents_is_rejected_without_records()
+    {
+        var manager = ActiveUser("manager", UserRole.Manager);
+        var fixture = new Fixture(manager);
+        var error = await Assert.ThrowsAsync<DomainRuleException>(() => fixture.Service.CreateSettlementAsync(
+            new("House", 110000, 10000, [], []), manager.Id, default));
+        Assert.Equal("AGENT_REQUIRED", error.ErrorCode);
+        Assert.Empty((await fixture.Service.GetOverviewAsync(manager.Id, default)).Records);
+    }
+
     [Fact]
     public void Base_price_only_goes_entirely_to_winner()
     {

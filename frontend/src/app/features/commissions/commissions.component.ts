@@ -1,7 +1,7 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { finalize } from 'rxjs';
+import { finalize, Subscription } from 'rxjs';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
@@ -103,12 +103,20 @@ type LedgerFilter = 'outstanding' | 'received' | 'all';
             <fieldset class="participant-picker winner-picker">
               <legend>Winning agents</legend>
               <p>Select every agent who shares the winning payout.</p>
+              <label class="no-winners-option">
+                <input type="checkbox" [checked]="noWinningAgents()" (change)="toggleNoWinningAgents($any($event.target).checked)" />
+                <span>No winning agents</span>
+              </label>
+              @if (noWinningAgents()) {
+                <p>The company keeps the base price and winner's 60% share. Select at least one participant below to split the usual 40% participation pool.</p>
+              }
               <div class="participant-grid">
                 @for (agent of data.agents; track agent.userId) {
-                  <label>
+                  <label [class.disabled]="noWinningAgents()">
                     <input
                       type="checkbox"
                       [checked]="winningAgentIds().includes(agent.userId)"
+                      [disabled]="noWinningAgents()"
                       (change)="toggleWinningAgent(agent.userId, $any($event.target).checked)"
                     />
                     <span><strong>{{ agent.displayName }}</strong><small>{{ roleLabel(agent.role) }}</small></span>
@@ -151,7 +159,7 @@ type LedgerFilter = 'outstanding' | 'received' | 'all';
                 <div class="payout-breakdown">
                   <article class="winner-card">
                     <svg lucideTrophy></svg>
-                    <div><small>Winning agents</small><strong>{{ selectedWinnerNames() || 'Select at least one agent' }}</strong></div>
+                    <div><small>Winning agents</small><strong>{{ noWinningAgents() ? 'No winning agents' : selectedWinnerNames() }}</strong></div>
                     <dl>
                       <div><dt>Base price pool</dt><dd>{{ result.winningAgentBaseShare | currency: 'USD' : 'symbol' : '1.0-2' }}</dd></div>
                       <div><dt>60% winner pool</dt><dd>{{ result.winningAgentClosingShare | currency: 'USD' : 'symbol' : '1.0-2' }}</dd></div>
@@ -175,7 +183,7 @@ type LedgerFilter = 'outstanding' | 'received' | 'all';
               @if (editingSettlementId()) {
                 <button class="btn btn-secondary" type="button" (click)="resetSettlementForm()"><svg lucideX></svg>Cancel</button>
               }
-              <button class="btn btn-primary" type="submit" [disabled]="settlementForm.invalid || winningAgentIds().length === 0 || !preview() || saving() || loadingSettlement()">
+              <button class="btn btn-primary" type="submit" [disabled]="settlementForm.invalid || !hasValidParticipants() || !preview() || saving() || loadingSettlement()">
                 {{ loadingSettlement() ? 'Loading settlement…' : saving() ? 'Saving…' : editingSettlementId() ? 'Save settlement' : 'Record settlement' }}
               </button>
             </div>
@@ -252,6 +260,7 @@ type LedgerFilter = 'outstanding' | 'received' | 'all';
     }
   `,
   styles: [`
+    .no-winners-option{display:flex;align-items:center;gap:9px;margin:10px 0;font-size:.8rem;cursor:pointer}.no-winners-option input{width:auto}
     .page-title,.section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px}.page-title{margin-bottom:24px}.page-title h1{margin:4px 0;font-size:2.5rem}.page-title p:last-child,.section-heading p:last-child{margin:0;color:var(--muted)}
     .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}.metric{padding:20px;display:grid;gap:5px;border-top:3px solid var(--border)}.metric.attention{border-top-color:var(--forest)}.metric>span{color:var(--muted);font-size:.72rem}.metric>strong{font-size:1.65rem}
     .settlement-panel{padding:24px}.section-heading h2{margin:4px 0 5px;font-size:1.25rem}.heading-icon{width:28px;height:28px;color:var(--forest)}form{margin-top:22px}.input-grid{display:grid;grid-template-columns:1.3fr repeat(2,1fr);gap:12px}.input-grid label{display:grid;grid-auto-rows:max-content;align-content:start;gap:7px}.input-grid span,legend{font-size:.7rem;font-weight:700;color:var(--muted)}input,select{width:100%;min-width:0;border:1px solid var(--border);border-radius:8px;background:var(--surface-subtle);color:var(--ink);padding:11px 12px;font:inherit}label small{color:var(--muted);font-size:.62rem}
@@ -275,7 +284,12 @@ export class CommissionsComponent {
   readonly preview = signal<AuctionCommissionCalculation | null>(null);
   readonly editingSettlementId = signal<string | null>(null);
   readonly winningAgentIds = signal<string[]>([]);
+  readonly noWinningAgents = signal(false);
   readonly otherAgentIds = signal<string[]>([]);
+  readonly hasValidParticipants = computed(() => this.noWinningAgents()
+    ? this.winningAgentIds().length === 0 && this.otherAgentIds().length > 0
+    : this.winningAgentIds().length > 0);
+  private previewRequest?: Subscription;
   readonly roleLabel = (role: keyof typeof USER_ROLES) => USER_ROLES[role];
   readonly settlementForm = new FormGroup({
     auctionReference: new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(160)] }),
@@ -293,23 +307,32 @@ export class CommissionsComponent {
   load() { this.service.overview().subscribe((value) => this.overview.set(value)); }
 
   refreshPreview() {
+    this.previewRequest?.unsubscribe();
+    this.preview.set(null);
     const { basePrice, finalAuctionPrice } = this.settlementForm.getRawValue();
     const winnerCount = this.winningAgentIds().length;
-    if (basePrice < 0 || finalAuctionPrice < basePrice || winnerCount === 0) { this.preview.set(null); return; }
-    this.service.preview(
+    if (basePrice < 0 || finalAuctionPrice < basePrice || !this.hasValidParticipants()) return;
+    this.previewRequest = this.service.preview(
       finalAuctionPrice,
       basePrice,
       winnerCount + this.otherAgentIds().length,
       winnerCount,
-    ).subscribe({
+    ).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (value) => this.preview.set(value),
       error: () => this.preview.set(null),
     });
   }
 
   toggleWinningAgent(id: string, checked: boolean) {
+    if (this.noWinningAgents()) return;
     this.winningAgentIds.update((ids) => checked ? [...new Set([...ids, id])] : ids.filter((value) => value !== id));
     if (checked) this.otherAgentIds.update((ids) => ids.filter((value) => value !== id));
+    this.refreshPreview();
+  }
+
+  toggleNoWinningAgents(checked: boolean) {
+    this.noWinningAgents.set(checked);
+    if (checked) this.winningAgentIds.set([]);
     this.refreshPreview();
   }
 
@@ -327,7 +350,7 @@ export class CommissionsComponent {
   }
 
   createSettlement() {
-    if (this.loadingSettlement() || this.settlementForm.invalid || this.winningAgentIds().length === 0 || !this.preview()) return;
+    if (this.saving() || this.loadingSettlement() || this.settlementForm.invalid || !this.hasValidParticipants() || !this.preview()) return;
     this.saving.set(true);
     const request = {
       ...this.settlementForm.getRawValue(),
@@ -389,6 +412,7 @@ export class CommissionsComponent {
       finalAuctionPrice: settlement.finalAuctionPrice,
     });
     this.winningAgentIds.set(records.filter((record) => record.isWinningAgent).map((record) => record.agentUserId));
+    this.noWinningAgents.set(this.winningAgentIds().length === 0);
     this.otherAgentIds.set(records.filter((record) => !record.isWinningAgent).map((record) => record.agentUserId));
     this.refreshPreview();
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -425,6 +449,8 @@ export class CommissionsComponent {
   }
 
   resetSettlementForm() {
+    this.previewRequest?.unsubscribe();
+    this.noWinningAgents.set(false);
     this.editingSettlementId.set(null);
     this.settlementForm.reset({ auctionReference: '', basePrice: 0, finalAuctionPrice: 0 });
     this.winningAgentIds.set([]);

@@ -24,17 +24,22 @@ public sealed class CommissionService(
             throw new DomainRuleException("Final auction price cannot be lower than the base price.", "FINAL_PRICE_BELOW_BASE");
         if (totalAgents < 1)
             throw new DomainRuleException("At least one participating agent is required.", "AGENT_REQUIRED");
-        if (winningAgentCount < 1 || winningAgentCount > totalAgents)
-            throw new DomainRuleException("Select at least one winner from the participating agents.", "INVALID_WINNER_COUNT");
+        if (winningAgentCount < 0 || winningAgentCount > totalAgents)
+            throw new DomainRuleException("Winning agent count must be between zero and the total participating agents.", "INVALID_WINNER_COUNT");
 
         var premium = finalPrice - basePrice;
         var pool = Math.Min(CalculateAdditionalPool(premium), MaximumAdditionalPool);
         var otherAgentCount = totalAgents - winningAgentCount;
-        var winningClosingShare = RoundMoney(pool * 0.60m);
-        var participationPool = otherAgentCount > 0 ? RoundMoney(pool - winningClosingShare) : 0m;
-        var perWinningAgent = RoundMoney((basePrice + winningClosingShare) / winningAgentCount);
+        var reservedWinnerPool = RoundMoney(pool * 0.60m);
+        var winningBaseShare = winningAgentCount > 0 ? basePrice : 0m;
+        var winningClosingShare = winningAgentCount > 0 ? reservedWinnerPool : 0m;
+        // Without winners, their base and closing share remain with the company.
+        var participationPool = otherAgentCount > 0 ? RoundMoney(pool - reservedWinnerPool) : 0m;
+        var perWinningAgent = winningAgentCount > 0
+            ? RoundMoney((winningBaseShare + winningClosingShare) / winningAgentCount)
+            : 0m;
         var perOtherAgent = otherAgentCount > 0 ? RoundMoney(participationPool / otherAgentCount) : 0m;
-        var agentDistribution = basePrice + winningClosingShare + participationPool;
+        var agentDistribution = winningBaseShare + winningClosingShare + participationPool;
         var managementRemainder = finalPrice - agentDistribution;
         if (RoundMoney(agentDistribution + managementRemainder) != RoundMoney(finalPrice))
             throw new InvalidOperationException("Auction settlement does not balance to the final price.");
@@ -45,9 +50,9 @@ public sealed class CommissionService(
             premium,
             pool,
             managementRemainder,
-            basePrice,
+            winningBaseShare,
             winningClosingShare,
-            basePrice + winningClosingShare,
+            winningBaseShare + winningClosingShare,
             perWinningAgent,
             participationPool,
             perOtherAgent,
@@ -282,9 +287,6 @@ public sealed class CommissionService(
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.Ordinal)
             .ToList();
-        if (winnerIds.Count == 0)
-            throw new DomainRuleException("Select at least one winning agent.", "WINNER_REQUIRED");
-
         var winnerIdSet = winnerIds.ToHashSet(StringComparer.Ordinal);
         var otherIds = request.OtherAgentUserIds
             .Where(x => !string.IsNullOrWhiteSpace(x) && !winnerIdSet.Contains(x))
