@@ -14,6 +14,8 @@ public sealed class RentSyncRecord
     public int RowNumber { get; set; }
     public string Status { get; set; } = string.Empty;
     public DateTime? PaidThrough { get; set; }
+    public DateTime? LastPaid { get; set; }
+    public DateTime? NextCharge { get; set; }
     public string Address { get; set; } = string.Empty;
     public string Interior { get; set; } = string.Empty;
     public int? Cid { get; set; }

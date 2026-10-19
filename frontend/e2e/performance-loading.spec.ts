@@ -267,6 +267,61 @@ test('eviction notices render a bounded page, load older notices, and resolve on
   expect(requests.some((path) => path === '/api/v1/notices/eviction-queue')).toBe(false);
 });
 
+test('export payment dates display as dates without timezone shifts', async ({ browser }) => {
+  const context = await browser.newContext({ timezoneId: 'America/Los_Angeles' });
+  const page = await context.newPage();
+  try {
+    await setup(page);
+    await page.route('**/api/v1/notices/records?**', (route) =>
+      route.fulfill({
+        json: {
+          snapshot: {
+            ...snapshot,
+            records: [
+              {
+                rowNumber: 1,
+                status: 'overdue',
+                address: 'Date test house',
+                interior: 'Apartment',
+                income: 18000,
+                cost: 8000,
+                lastPaid: '2026-10-19T00:00:00Z',
+                nextCharge: '2026-10-22T00:00:00Z',
+                isResolved: false,
+              },
+              {
+                rowNumber: 2,
+                status: 'overdue',
+                address: 'Unknown date house',
+                interior: 'Apartment',
+                income: 9000,
+                cost: 4500,
+                lastPaid: null,
+                nextCharge: null,
+                isResolved: false,
+              },
+            ],
+          },
+          hasMore: false,
+          nextSkip: 2,
+        },
+      }),
+    );
+    await page.goto('/dashboard/notices/overdue-list');
+    const row = page.getByRole('row').filter({ hasText: 'Date test house' });
+    await expect(row).toContainText('Oct 19, 2026');
+    await expect(row).toContainText('Oct 22, 2026');
+    await expect(
+      page
+        .getByRole('row')
+        .filter({ hasText: 'Unknown date house' })
+        .getByRole('cell', { name: 'Unknown', exact: true }),
+    ).toHaveCount(2);
+  } finally {
+    await context.close();
+  }
+});
+
 test('overdue list retries a failed page without displaying a false empty state', async ({
   page,
 }) => {

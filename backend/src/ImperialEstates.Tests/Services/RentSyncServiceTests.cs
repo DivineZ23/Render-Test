@@ -4,11 +4,84 @@ using ImperialEstates.Application.Interfaces;
 using ImperialEstates.Application.Services;
 using ImperialEstates.Domain.Entities;
 using ImperialEstates.Domain.Enums;
+using ImperialEstates.Domain.Exceptions;
 
 namespace ImperialEstates.Tests.Services;
 
 public sealed class RentSyncServiceTests
 {
+    [Fact]
+    public async Task Ten_column_export_preserves_dates_statuses_and_currency_commas()
+    {
+        var snapshots = new SnapshotRepository();
+        var result = await CreateService(snapshots).SyncAsync(new RentSyncRequest("""
+            Status,Address,Interior,Renter CID,Renter Name,Phone,Income,Cost,Last Paid,Next Charge
+            Paid,Example House 1,Franklin's Mansion,99,Test Renter,333-4444,$18,000,$8,000,Unknown,10/22/2026
+            Paid,Example House 2,Mid-End Apartment (House),99,Test Renter,333-4444,$8,500.50,$4,500.25,10/19/2026,10/24/2026
+            Overdue,Example House 3,Franklin's Mansion,99,Test Renter,333-4444,$22,000,$8,000,Unknown,10/18/2026
+            Evictable,Example House 4,Trevor's Beach House,99,Test Renter,333-4444,$10,000,$5,000,Unknown,10/8/2026
+            Empty,Example House 5,Michael's Mansion,N/A,N/A,N/A,$0,$8,000,N/A,N/A
+            """), "owner-1", default);
+        Assert.Equal(5, result.Total);
+        Assert.Equal(2, result.Active);
+        Assert.Equal(1, result.Overdue);
+        Assert.Equal(1, result.Evictable);
+        Assert.Equal(1, result.Empty);
+        Assert.Equal(58500.50m, result.Records.Sum(x => x.Income));
+        Assert.Equal(33500.25m, result.Records.Sum(x => x.Cost));
+        Assert.Null(result.Records[0].LastPaid);
+        Assert.Equal(new DateTime(2026, 10, 22), result.Records[0].NextCharge);
+        Assert.Equal(new DateTime(2026, 10, 19), result.Records[1].LastPaid);
+        Assert.Equal(new DateTime(2026, 10, 24), result.Records[1].NextCharge);
+        Assert.Null(result.Records[1].PaidThrough);
+        Assert.Null(result.Records[4].LastPaid);
+        Assert.Null(result.Records[4].NextCharge);
+        Assert.Equal(result.Records[1].LastPaid, (await snapshots.GetCurrentAsync(default))!.Records[1].LastPaid);
+        Assert.Equal(result.Records[0].NextCharge, (await CreateService(snapshots).GetCurrentAsync(default)).Records[0].NextCharge);
+    }
+
+    [Theory]
+    [InlineData("Unknown", "N/A")]
+    [InlineData("", "")]
+    public async Task Missing_payment_dates_are_optional(string lastPaid, string nextCharge)
+    {
+        var result = await CreateService(new SnapshotRepository()).SyncAsync(new RentSyncRequest(
+            DatedExport("Paid", lastPaid, nextCharge)), "owner-1", default);
+        Assert.Null(Assert.Single(result.Records).LastPaid);
+        Assert.Null(Assert.Single(result.Records).NextCharge);
+    }
+
+    [Theory]
+    [InlineData("2/30/2026", "10/22/2026")]
+    [InlineData("Unknown", "19/10/2026")]
+    [InlineData("yesterday", "10/22/2026")]
+    public async Task Invalid_payment_dates_reject_the_entire_export_before_saving(string lastPaid, string nextCharge)
+    {
+        var snapshots = new SnapshotRepository();
+        var service = CreateService(snapshots);
+        var error = await Assert.ThrowsAsync<DomainRuleException>(() => service.SyncAsync(
+            new RentSyncRequest(DatedExport("Paid", lastPaid, nextCharge)), "owner-1", default));
+        Assert.Equal("RENT_SYNC_DATE_INVALID", error.ErrorCode);
+        Assert.Contains("Row 2", error.Message);
+        Assert.Null(await snapshots.GetCurrentAsync(default));
+    }
+
+    [Fact]
+    public async Task Header_and_row_column_counts_must_agree()
+    {
+        var service = CreateService(new SnapshotRepository());
+        var legacyWithDates = Export("Paid") + ",Unknown,10/22/2026";
+        var newWithoutDates = Export("Paid").Replace("Income,Cost", "Income,Cost,Last Paid,Next Charge");
+        foreach (var raw in new[] { legacyWithDates, newWithoutDates })
+        {
+            var error = await Assert.ThrowsAsync<DomainRuleException>(() => service.SyncAsync(new(raw), "owner-1", default));
+            Assert.Equal("RENT_SYNC_ROW_INVALID", error.ErrorCode);
+        }
+    }
+
+    private static string DatedExport(string status, string lastPaid = "Unknown", string nextCharge = "10/22/2026") =>
+        Export(status).Replace("Income,Cost", "Income,Cost,Last Paid,Next Charge") + $",{lastPaid},{nextCharge}";
+
     [Fact]
     public async Task Eviction_queue_batches_property_reads_for_large_queues_and_preserves_holds()
     {
@@ -164,8 +237,10 @@ public sealed class RentSyncServiceTests
         Assert.Equal("Divine", resolvedEviction.ResolvedByDisplayName);
     }
 
-    [Fact]
-    public async Task Sync_preserves_a_property_manual_on_hold_status()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Sync_preserves_a_property_manual_on_hold_status(bool dated)
     {
         var property = new Property { Id = "property-1", PropertyName = "Marina Drive 8" };
         property.PlaceOnHold("Reserved for maintenance");
@@ -180,7 +255,7 @@ public sealed class RentSyncServiceTests
             new AuditRepository());
 
         await service.SyncAsync(
-            new RentSyncRequest(Export("Empty")),
+            new RentSyncRequest(dated ? DatedExport("Empty", "N/A", "N/A") : Export("Empty")),
             "owner-1",
             default);
 
@@ -343,8 +418,10 @@ public sealed class RentSyncServiceTests
         Assert.True(released.IsReady);
     }
 
-    [Fact]
-    public async Task Paid_sync_closes_the_eviction_cycle_and_a_later_cycle_gets_a_new_notice()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Paid_sync_closes_the_eviction_cycle_and_a_later_cycle_gets_a_new_notice(bool dated)
     {
         var snapshots = new SnapshotRepository();
         var tenant = new Tenant
@@ -375,7 +452,7 @@ public sealed class RentSyncServiceTests
         Assert.True(Assert.Single(await service.GetEvictionQueueAsync(default)).IsOnHold);
 
         var paid = await service.SyncAsync(
-            new RentSyncRequest(Export("Paid")), "owner-1", default);
+            new RentSyncRequest(dated ? DatedExport("Paid") : Export("Paid")), "owner-1", default);
 
         Assert.Equal(PropertyStatus.Paid, property.Status);
         Assert.Equal("paid", Assert.Single(paid.Records).Status);
@@ -397,8 +474,10 @@ public sealed class RentSyncServiceTests
         Assert.False(waiting.IsReady);
     }
 
-    [Fact]
-    public async Task Overdue_sync_closes_the_eviction_cycle_and_a_later_cycle_gets_a_new_notice()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Overdue_sync_closes_the_eviction_cycle_and_a_later_cycle_gets_a_new_notice(bool dated)
     {
         var snapshots = new SnapshotRepository();
         var tenant = new Tenant
@@ -428,7 +507,7 @@ public sealed class RentSyncServiceTests
         await service.SetEvictionHoldAsync(firstCycle.Id, 1, true, "owner-1", default);
 
         var overdue = await service.SyncAsync(
-            new RentSyncRequest(Export("Overdue")), "owner-1", default);
+            new RentSyncRequest(dated ? DatedExport("Overdue") : Export("Overdue")), "owner-1", default);
 
         Assert.Equal(PropertyStatus.Overdue, property.Status);
         Assert.NotNull(Assert.Single(overdue.Records).OverdueNotice);

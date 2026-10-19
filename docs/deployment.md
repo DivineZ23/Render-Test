@@ -17,6 +17,10 @@ The API exposes `/health` for basic process health. Add authenticated dependency
 
 ## Google Sheets rent-data publishing
 
+Data Sync accepts both the legacy eight-column export and the newer ten-column export ending in `Last Paid,Next Charge`. Payment dates use US month/day/year; `Unknown`, `N/A`, and blank dates are stored as missing. Last Paid and Next Charge are kept separately in sync history and shown in the record table; neither is treated as the legacy Paid-through date. The exported Status remains authoritative for sync status handling, with manual property Hold protection unchanged.
+
+The bot-facing Google Sheets contract remains eight columns (`A:H`); the two new source date columns do not change the bot's input schema.
+
 Data Sync can publish the normalized eight-column game export directly to the Google Sheet used by the Discord bot. Publishing happens immediately after a successful website sync; the Data Sync page checks the latest state every minute and exposes a manual retry when Google rejects a write.
 
 1. Create a Google Cloud service account and enable the Google Sheets API for its project.

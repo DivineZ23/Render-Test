@@ -266,6 +266,8 @@ export interface RentSyncRecord {
   rowNumber: number;
   status: RentSyncStatus;
   paidThrough?: string;
+  lastPaid?: string;
+  nextCharge?: string;
   address: string;
   interior: string;
   cid?: number;

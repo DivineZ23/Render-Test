@@ -175,7 +175,7 @@ interface EvictionDayGroup {
             rows="14"
             [(ngModel)]="rawData"
             spellcheck="false"
-            placeholder="Status,Address,Interior,Renter CID,Renter Name,Phone,Income,Cost"
+            placeholder="Status,Address,Interior,Renter CID,Renter Name,Phone,Income,Cost,Last Paid,Next Charge"
           ></textarea>
           @if (error()) {
             <p class="message error">{{ error() }}</p>
@@ -638,6 +638,8 @@ interface EvictionDayGroup {
                   <th>Phone</th>
                   <th>Income</th>
                   <th>Cost</th>
+                  <th>Last paid</th>
+                  <th>Next charge</th>
                   <th>Discord mapping</th>
                 </tr>
               </thead>
@@ -656,6 +658,8 @@ interface EvictionDayGroup {
                     <td>{{ record.phone ?? 'N/A' }}</td>
                     <td>{{ record.income | currency: 'USD' : 'symbol' : '1.0-0' }}</td>
                     <td>{{ record.cost | currency: 'USD' : 'symbol' : '1.0-0' }}</td>
+                    <td>{{ record.lastPaid ? (record.lastPaid | date: 'MMM d, yyyy' : 'UTC') : record.status === 'empty' ? 'N/A' : 'Unknown' }}</td>
+                    <td>{{ record.nextCharge ? (record.nextCharge | date: 'MMM d, yyyy' : 'UTC') : record.status === 'empty' ? 'N/A' : 'Unknown' }}</td>
                     <td>
                       {{
                         record.discordId

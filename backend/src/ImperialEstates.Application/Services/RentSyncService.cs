@@ -19,7 +19,7 @@ public sealed class RentSyncService(
     IAuditRepository audits)
 {
     private static readonly Regex RowPattern = new(
-        @"^(?<status>[^,]+),(?<address>[^,]+),(?<interior>[^,]+),(?<cid>[^,]+),(?<name>[^,]+),(?<phone>[^,]+),(?<income>\$[\d,]+),(?<cost>\$[\d,]+)$",
+        @"^(?<status>[^,]+),(?<address>[^,]+),(?<interior>[^,]+),(?<cid>[^,]+),(?<name>[^,]+),(?<phone>[^,]+),(?<income>\$(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?),(?<cost>\$(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)(?:,(?<lastPaid>[^,]*),(?<nextCharge>[^,]*))?$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public async Task<RentSyncSnapshotDto> GetCurrentAsync(CancellationToken ct)
@@ -655,14 +655,16 @@ public sealed class RentSyncService(
 
         var lines = rawData.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n')
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (lines.Length < 2 || !NormalizeHeader(lines[0]).SequenceEqual(ExpectedHeader))
-            throw new DomainRuleException("The export header must be Status, Address, Interior, Renter CID, Renter Name, Phone, Income, Cost.", "RENT_SYNC_HEADER_INVALID");
+        var header = NormalizeHeader(lines[0]);
+        var hasPaymentDates = header.SequenceEqual(ExpectedHeader.Concat(["last paid", "next charge"]));
+        if (lines.Length < 2 || (!hasPaymentDates && !header.SequenceEqual(ExpectedHeader)))
+            throw new DomainRuleException("The export header must be Status, Address, Interior, Renter CID, Renter Name, Phone, Income, Cost, optionally followed by Last Paid, Next Charge.", "RENT_SYNC_HEADER_INVALID");
 
         var result = new List<RentSyncRecord>();
         for (var index = 1; index < lines.Length; index++)
         {
             var match = RowPattern.Match(lines[index]);
-            if (!match.Success)
+            if (!match.Success || match.Groups["lastPaid"].Success != hasPaymentDates)
                 throw new DomainRuleException($"Row {index + 1} does not match the expected export format.", "RENT_SYNC_ROW_INVALID");
 
             var (status, paidThrough) = ParseStatus(match.Groups["status"].Value, index + 1);
@@ -671,6 +673,8 @@ public sealed class RentSyncService(
                 RowNumber = index,
                 Status = status,
                 PaidThrough = paidThrough,
+                LastPaid = hasPaymentDates ? ParsePaymentDate(match.Groups["lastPaid"].Value, "Last Paid", index + 1) : null,
+                NextCharge = hasPaymentDates ? ParsePaymentDate(match.Groups["nextCharge"].Value, "Next Charge", index + 1) : null,
                 Address = match.Groups["address"].Value.Trim(),
                 Interior = match.Groups["interior"].Value.Trim(),
                 Cid = ParseCid(match.Groups["cid"].Value, index + 1),
@@ -707,6 +711,17 @@ public sealed class RentSyncService(
         if (status.Equals("Evictable", StringComparison.OrdinalIgnoreCase)) return ("evictable", null);
         if (status.Equals("Empty", StringComparison.OrdinalIgnoreCase)) return ("empty", null);
         throw new DomainRuleException($"Row {row} has an unsupported status '{status}'.", "RENT_SYNC_STATUS_INVALID");
+    }
+
+    private static DateTime? ParsePaymentDate(string value, string column, int row)
+    {
+        value = value.Trim();
+        if (value.Length == 0 || value.Equals("N/A", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("Unknown", StringComparison.OrdinalIgnoreCase)) return null;
+        if (DateTime.TryParseExact(value, ["M/d/yyyy", "MM/dd/yyyy", "M/dd/yyyy", "MM/d/yyyy", "yyyy-MM-dd"],
+            CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+            return DateTime.SpecifyKind(date.Date, DateTimeKind.Utc);
+        throw new DomainRuleException($"Row {row} contains an invalid {column} date. Use M/d/yyyy, Unknown or N/A.", "RENT_SYNC_DATE_INVALID");
     }
 
     private static int? ParseCid(string value, int row)
@@ -828,7 +843,8 @@ public sealed class RentSyncService(
         record.TenantId, record.DiscordId, !string.IsNullOrWhiteSpace(record.TenantId),
         record.Status == "overdue" && record.NoticeGenerated != false ? OverdueNotice(record, syncedAt.Date.AddDays(7)) : null,
         record.Status == "evictable" && record.NoticeGenerated != false ? EvictionNotice(record) : null,
-        record.IsResolved, record.ResolvedByUserId, record.ResolvedByDisplayName, record.ResolvedAt);
+        record.IsResolved, record.ResolvedByUserId, record.ResolvedByDisplayName, record.ResolvedAt,
+        record.LastPaid, record.NextCharge);
 
     private static string OverdueNotice(RentSyncRecord record, DateTime evictionDate) =>
         $"⚠️ Overdue Payment Notice\n\nNOTICE OF PAYMENT AND EVICTION: {record.RenterName}, this is to inform you that your house {record.Address} is overdue due to unpaid dues. You have 1 Week to pay the rent to avoid eviction. Thank You State Real Estate. Date of Eviction: {evictionDate:dd MMMM yyyy}";
