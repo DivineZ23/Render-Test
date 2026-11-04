@@ -718,10 +718,11 @@ public sealed class RentSyncService(
         value = value.Trim();
         if (value.Length == 0 || value.Equals("N/A", StringComparison.OrdinalIgnoreCase) ||
             value.Equals("Unknown", StringComparison.OrdinalIgnoreCase)) return null;
-        if (DateTime.TryParseExact(value, ["M/d/yyyy", "MM/dd/yyyy", "M/dd/yyyy", "MM/d/yyyy", "yyyy-MM-dd"],
+        if (DateTime.TryParseExact(value,
+            ["M/d/yyyy", "MM/dd/yyyy", "M/dd/yyyy", "MM/d/yyyy", "yyyy-MM-dd", "MMM d yyyy", "MMM dd yyyy"],
             CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
             return DateTime.SpecifyKind(date.Date, DateTimeKind.Utc);
-        throw new DomainRuleException($"Row {row} contains an invalid {column} date. Use M/d/yyyy, Unknown or N/A.", "RENT_SYNC_DATE_INVALID");
+        throw new DomainRuleException($"Row {row} contains an invalid {column} date. Use M/d/yyyy, yyyy-MM-dd, MMM d yyyy (for example Nov 05 2026), Unknown or N/A.", "RENT_SYNC_DATE_INVALID");
     }
 
     private static int? ParseCid(string value, int row)

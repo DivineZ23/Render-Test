@@ -17,7 +17,7 @@ The API exposes `/health` for basic process health. Add authenticated dependency
 
 ## Google Sheets rent-data publishing
 
-Data Sync accepts both the legacy eight-column export and the newer ten-column export ending in `Last Paid,Next Charge`. Payment dates use US month/day/year; `Unknown`, `N/A`, and blank dates are stored as missing. Last Paid and Next Charge are kept separately in sync history and shown in the record table; neither is treated as the legacy Paid-through date. The exported Status remains authoritative for sync status handling, with manual property Hold protection unchanged.
+Data Sync accepts both the legacy eight-column export and the newer ten-column export ending in `Last Paid,Next Charge`. Payment dates support US month/day/year, ISO `yyyy-MM-dd`, and English abbreviated month names such as `Oct 29 2026` or `Nov 05 2026`; `Unknown`, `N/A`, and blank dates are stored as missing. Last Paid and Next Charge are kept separately in sync history and shown in the record table; neither is treated as the legacy Paid-through date. The exported Status remains authoritative for sync status handling, with manual property Hold protection unchanged.
 
 The bot-facing Google Sheets contract remains eight columns (`A:H`); the two new source date columns do not change the bot's input schema.
 

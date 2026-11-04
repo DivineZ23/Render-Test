@@ -10,6 +10,37 @@ namespace ImperialEstates.Tests.Services;
 
 public sealed class RentSyncServiceTests
 {
+    [Theory]
+    [InlineData("Oct 29 2026", "Nov 05 2026")]
+    [InlineData("Oct 29 2026", "Nov 5 2026")]
+    [InlineData("10/29/2026", "11/5/2026")]
+    [InlineData("2026-10-29", "2026-11-05")]
+    [InlineData("Oct 29 2026", "11/05/2026")]
+    public async Task Payment_dates_accept_month_names_and_legacy_formats_independently_of_server_culture(string lastPaid, string nextCharge)
+    {
+        var originalCulture = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+            var snapshots = new SnapshotRepository();
+            var service = CreateService(snapshots);
+            var result = await service.SyncAsync(new RentSyncRequest(DatedExport("Paid", lastPaid, nextCharge)), "owner-1", default);
+            var record = Assert.Single(result.Records);
+            Assert.Equal(new DateTime(2026, 10, 29, 0, 0, 0, DateTimeKind.Utc), record.LastPaid);
+            Assert.Equal(new DateTime(2026, 11, 5, 0, 0, 0, DateTimeKind.Utc), record.NextCharge);
+            Assert.Equal(DateTimeKind.Utc, record.LastPaid!.Value.Kind);
+            Assert.Equal(DateTimeKind.Utc, record.NextCharge!.Value.Kind);
+            Assert.Null(record.PaidThrough);
+            var saved = Assert.Single((await service.GetCurrentAsync(default)).Records);
+            Assert.Equal(record.LastPaid, saved.LastPaid);
+            Assert.Equal(record.NextCharge, saved.NextCharge);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = originalCulture;
+        }
+    }
+
     [Fact]
     public async Task Ten_column_export_preserves_dates_statuses_and_currency_commas()
     {
@@ -55,6 +86,8 @@ public sealed class RentSyncServiceTests
     [InlineData("2/30/2026", "10/22/2026")]
     [InlineData("Unknown", "19/10/2026")]
     [InlineData("yesterday", "10/22/2026")]
+    [InlineData("Feb 30 2026", "Nov 05 2026")]
+    [InlineData("Oct 29 2026", "Nov 31 2026")]
     public async Task Invalid_payment_dates_reject_the_entire_export_before_saving(string lastPaid, string nextCharge)
     {
         var snapshots = new SnapshotRepository();
