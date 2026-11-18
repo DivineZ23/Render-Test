@@ -186,6 +186,7 @@ export interface PropertyBooking {
 }
 
 export interface PropertyBookingGroup {
+  images?: string[];
   propertyId: string;
   propertyNumber: number;
   propertyName: string;

@@ -1,4 +1,5 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
+import { CopyBookingComponent } from '../../shared/components/copy-booking/copy-booking.component';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
@@ -21,6 +22,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
 @Component({
   selector: 'app-property-bookings',
   imports: [
+    CopyBookingComponent,
     CurrencyPipe,
     DatePipe,
     RouterLink,
@@ -105,7 +107,8 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
                   <th>Booking amount</th>
                   <th>Booked by</th>
                   <th>Booked on</th>
-                  <th></th>
+                  <th>Copy booking</th>
+                  <th>Remove</th>
                 </tr>
               </thead>
               <tbody>
@@ -128,6 +131,9 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
                         <b>{{ booking.createdAt | date: 'mediumDate' }}</b>
                         <span>at {{ booking.createdAt | date: 'shortTime' }}</span>
                       </time>
+                    </td>
+                    <td>
+                      <app-copy-booking [property]="selected" [booking]="booking" />
                     </td>
                     <td>
                       <button

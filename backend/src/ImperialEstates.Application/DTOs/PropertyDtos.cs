@@ -72,7 +72,10 @@ public sealed record PropertyBookingGroupDto(
     PropertyType Type, PropertyStatus Status, bool AllowOccupiedBookings,
     bool BookingAnnouncementPending, DateTime? BookingAnnouncementCreatedAt,
     DateTime? BookingAnnouncementPostedAt, string? BookingAnnouncementPostedByDisplayName,
-    IReadOnlyList<PropertyBookingDto> Bookings);
+    IReadOnlyList<PropertyBookingDto> Bookings)
+{
+    public IReadOnlyList<string> Images { get; init; } = [];
+}
 
 public sealed record BookingAnnouncementSummaryDto(long PendingCount);
 

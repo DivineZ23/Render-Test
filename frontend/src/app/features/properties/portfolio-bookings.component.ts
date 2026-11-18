@@ -1,4 +1,5 @@
 import { CurrencyPipe, DatePipe } from '@angular/common';
+import { CopyBookingComponent } from '../../shared/components/copy-booking/copy-booking.component';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
@@ -23,6 +24,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
 @Component({
   selector: 'app-portfolio-bookings',
   imports: [
+    CopyBookingComponent,
     CurrencyPipe,
     DatePipe,
     RouterLink,
@@ -166,6 +168,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
                       <th>Booking amount</th>
                       <th>Booked by</th>
                       <th>Booked on</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -189,6 +192,7 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge/statu
                             <span>at {{ booking.createdAt | date: 'shortTime' }}</span>
                           </time>
                         </td>
+                        <td><app-copy-booking [property]="group" [booking]="booking" /></td>
                       </tr>
                     }
                   </tbody>

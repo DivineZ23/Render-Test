@@ -272,7 +272,7 @@ public sealed class PropertyService(
                     booking,
                     !string.IsNullOrWhiteSpace(booking.CreatedBy) && creatorNames.TryGetValue(booking.CreatedBy, out var name)
                         ? name
-                        : null)).ToList()))
+                        : null)).ToList()) { Images = property.Images.ToArray() })
             .ToList();
     }
 
