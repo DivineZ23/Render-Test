@@ -14,6 +14,7 @@ export function bookingMessage(
   property: BookingProperty,
   booking: Pick<PropertyBooking, 'monthlyRent'>,
   currentUserDiscordId: string | null | undefined,
+  interestedPeople?: number,
 ): string {
   const rent = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -35,7 +36,9 @@ export function bookingMessage(
     `**Block:** ${property.blockName}`,
     `**Type:** ${propertyTypeLabel(property.type)}`,
     `**Rent:** ${rent}`,
-    '**Number of People:** 0',
+    interestedPeople === undefined
+      ? '**Number of People:** 0'
+      : `**Number of Interested People:** ${interestedPeople}`,
     `**Property Pictures:** ${pictures || 'Not available'}`,
     `**Contact Details:** ${contacts.map((id) => `<@${id}>`).join(' ')}`,
     '',

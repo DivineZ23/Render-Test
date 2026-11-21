@@ -78,6 +78,10 @@ public sealed class PropertiesController(
     public Task<IReadOnlyList<PropertyBookingDto>> Bookings(string id, CancellationToken ct) =>
         service.GetBookingsAsync(id, ct);
 
+    [Authorize(Policy = "ApprovedUser"), HttpGet("{id}/booking-summary")]
+    public Task<PropertyBookingSummaryDto> BookingSummary(string id, CancellationToken ct) =>
+        service.GetBookingSummaryAsync(id, ct);
+
     [Authorize(Policy = "ApprovedUser"), HttpPost("{id}/bookings")]
     public async Task<ActionResult<PropertyBookingDto>> CreateBooking(
         string id, CreatePropertyBookingRequest request, CancellationToken ct)

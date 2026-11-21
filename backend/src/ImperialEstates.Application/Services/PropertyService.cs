@@ -232,6 +232,13 @@ public sealed class PropertyService(
                 : null)).ToList();
     }
 
+    public async Task<PropertyBookingSummaryDto> GetBookingSummaryAsync(string propertyId, CancellationToken ct)
+    {
+        _ = await GetEntityAsync(propertyId, ct);
+        var active = await bookings.GetActiveByPropertyAsync(propertyId, ct);
+        return new(active.Count, active.Count > 0 ? active.Max(booking => booking.MonthlyRent) : null);
+    }
+
     public async Task<IReadOnlyList<PropertyBookingGroupDto>> GetAllBookingGroupsAsync(CancellationToken ct)
     {
         var bookingValues = await bookings.GetAllActiveAsync(ct);

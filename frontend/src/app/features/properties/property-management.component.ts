@@ -3,9 +3,11 @@ import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatDialog } from '@angular/material/dialog';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 import {
   LucideCalendarPlus,
+  LucideCopy,
   LucideClipboardList,
   LucideChevronLeft,
   LucideChevronRight,
@@ -17,7 +19,9 @@ import {
   LucideUserMinus,
   LucideUserPlus,
 } from '@lucide/angular';
-import { catchError, debounceTime, finalize, of, startWith, switchMap } from 'rxjs';
+import { catchError, debounceTime, finalize, firstValueFrom, of, startWith, switchMap } from 'rxjs';
+import { CopyPropertyRentDialogComponent } from './copy-property-rent-dialog.component';
+import { bookingMessage } from '../../shared/utilities/booking-message';
 import {
   PROPERTY_STATUSES,
   PROPERTY_TYPE_OPTIONS,
@@ -45,6 +49,7 @@ import { EvictTenantDialogComponent } from './evict-tenant-dialog.component';
     StatusBadgeComponent,
     EmptyStateComponent,
     LucideCalendarPlus,
+    LucideCopy,
     LucideClipboardList,
     LucideChevronLeft,
     LucideChevronRight,
@@ -158,6 +163,17 @@ import { EvictTenantDialogComponent } from './evict-tenant-dialog.component';
               </td>
               <td>
                 <div class="row-actions">
+                  <button
+                    type="button"
+                    class="edit-action"
+                    (click)="copyProperty(property)"
+                    [disabled]="copyingPropertyId() !== null"
+                    [attr.aria-busy]="copyingPropertyId() === property.id"
+                    [attr.aria-label]="'Copy ' + property.propertyName"
+                    title="Copy property booking message"
+                  >
+                    <svg lucideCopy></svg>
+                  </button>
                   @if (
                     access.canAccess('portfolio.properties.sell') &&
                     (property.status === 'available' || property.status === 'booked')
@@ -386,6 +402,10 @@ import { EvictTenantDialogComponent } from './evict-tenant-dialog.component';
         border-color: var(--forest);
         color: var(--forest);
       }
+      .row-actions .edit-action:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
       .row-actions .edit-action svg {
         width: 14px;
         height: 14px;
@@ -415,6 +435,8 @@ export class PropertyManagementComponent {
   private service = inject(PropertyService);
   private blockService = inject(BlockService);
   private dialog = inject(MatDialog);
+  private readonly snackBar = inject(MatSnackBar);
+  readonly copyingPropertyId = signal<string | null>(null);
   private destroy = inject(DestroyRef);
   readonly statuses = PROPERTY_STATUSES;
   readonly types = PROPERTY_TYPE_OPTIONS;
@@ -477,6 +499,57 @@ export class PropertyManagementComponent {
   }
   page(page: number) {
     this.filters.controls.page.setValue(page);
+  }
+  async copyProperty(property: Property) {
+    if (this.copyingPropertyId() !== null) return;
+    this.copyingPropertyId.set(property.id);
+    let copying = false;
+    try {
+      // Fetch only on click; never trust a cached booking count or load every row's bookings.
+      const summary = await firstValueFrom(
+        this.service.bookingSummary(property.id).pipe(takeUntilDestroyed(this.destroy)),
+      );
+      if (this.destroy.destroyed) return;
+      let rent: number | null | undefined = summary.highestRent;
+      if (summary.bookingCount === 0) {
+        rent = await firstValueFrom(
+          this.dialog
+            .open<CopyPropertyRentDialogComponent, { propertyName: string; rent: number }, number>(
+              CopyPropertyRentDialogComponent,
+              {
+                data: { propertyName: property.propertyName, rent: property.rent },
+                width: '480px',
+                maxWidth: '95vw',
+              },
+            )
+            .afterClosed()
+            .pipe(takeUntilDestroyed(this.destroy)),
+        );
+      }
+      if (rent === undefined || rent === null || this.destroy.destroyed) return;
+      if (!Number.isFinite(rent) || rent < 0) throw new Error('Invalid rent');
+      copying = true;
+      await navigator.clipboard.writeText(
+        bookingMessage(
+          property,
+          { monthlyRent: rent },
+          this.auth.user()?.discordUserId,
+          summary.bookingCount,
+        ),
+      );
+      this.snackBar.open('Property booking message copied.', 'Dismiss', { duration: 2500 });
+    } catch {
+      if (!this.destroy.destroyed)
+        this.snackBar.open(
+          copying
+            ? 'Could not copy. Allow clipboard access and try again.'
+            : 'Could not load current booking details. Please try again.',
+          'Dismiss',
+          { duration: 4000 },
+        );
+    } finally {
+      this.copyingPropertyId.set(null);
+    }
   }
   idSortDirection(): 'asc' | 'desc' {
     return this.filters.controls.sortDirection.value;

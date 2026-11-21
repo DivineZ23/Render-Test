@@ -30,6 +30,11 @@ describe('booking message', () => {
     expect(message).toContain('**Contact Details:** <@336361433652527104> <@441930552451530753>');
     expect(message).not.toContain('<@invalid>');
   });
+  it.each([0, 3])('includes the active booking count %s for property messages', (count) => {
+    const message = bookingMessage(property, { monthlyRent: 25000 }, '336361433652527104', count);
+    expect(message).toContain(`**Number of Interested People:** ${count}`);
+    expect(message).not.toContain('**Number of People:**');
+  });
   it.each(['336361433652527104', '441930552451530753'])(
     'does not duplicate contact %s when they copy',
     (id) => {

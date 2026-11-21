@@ -205,6 +205,11 @@ export interface BookingAnnouncementSummary {
   pendingCount: number;
 }
 
+export interface PropertyBookingSummary {
+  bookingCount: number;
+  highestRent: number | null;
+}
+
 export interface BookingAnnouncementState {
   propertyId: string;
   isPending: boolean;

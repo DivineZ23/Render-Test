@@ -11,6 +11,7 @@ import {
   Property,
   PropertyBooking,
   PropertyBookingGroup,
+  PropertyBookingSummary,
   PropertyQuery,
   PropertyStatus,
   PublicProperty,
@@ -65,6 +66,9 @@ export class PropertyService {
   }
   bookings(id: string): Observable<PropertyBooking[]> {
     return this.api.get(`${API_ENDPOINTS.properties.root}/${id}/bookings`);
+  }
+  bookingSummary(id: string): Observable<PropertyBookingSummary> {
+    return this.api.get(`${API_ENDPOINTS.properties.root}/${id}/booking-summary`);
   }
   bookingGroups(): Observable<PropertyBookingGroup[]> {
     return this.api.read(`${API_ENDPOINTS.properties.root}/bookings`);

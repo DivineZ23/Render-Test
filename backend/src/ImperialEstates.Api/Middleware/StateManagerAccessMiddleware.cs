@@ -79,7 +79,7 @@ public sealed class StateManagerAccessMiddleware(RequestDelegate next)
         ("Users", "All" or "Pending") => ["administration.users"],
         ("AuditLogs", "All") => ["administration.auditLogs"],
         ("Blocks", "All" or "Get") => ["portfolio.blocks", "portfolio.properties"],
-        ("Properties", "All" or "Details" or "History") => ["portfolio.properties"],
+        ("Properties", "All" or "Details" or "History" or "BookingSummary") => ["portfolio.properties"],
         ("Properties", "AllBookings" or "Bookings" or "BookingAnnouncementSummary") => ["portfolio.bookings"],
         ("Tenants", "All") => ["portfolio.tenants"],
         ("Tenants", "Evictions") => ["notices.evictionHistory"],

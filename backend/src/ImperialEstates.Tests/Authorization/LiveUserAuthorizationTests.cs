@@ -170,6 +170,24 @@ public sealed class LiveUserAuthorizationTests
         Assert.True(context.HasSucceeded);
     }
 
+    [Fact]
+    public async Task Property_booking_summary_follows_property_view_permission_without_exposing_booking_details()
+    {
+        var settings = new PermissionRepository();
+        var repository = new SingleUserRepository(StateManager());
+        var reached = 0;
+        var middleware = new StateManagerAccessMiddleware(_ => { reached++; return Task.CompletedTask; });
+        await middleware.InvokeAsync(Request("Properties", "BookingSummary"), repository, settings);
+        Assert.Equal(0, reached);
+        settings.Permissions["portfolio.properties"] = new() { ["stateManager"] = true };
+        await middleware.InvokeAsync(Request("Properties", "BookingSummary"), repository, settings);
+        Assert.Equal(1, reached);
+        var details = Request("Properties", "Bookings");
+        await middleware.InvokeAsync(details, repository, settings);
+        Assert.Equal(1, reached);
+        Assert.Equal(403, details.Response.StatusCode);
+    }
+
     private sealed class SingleUserRepository(User user) : IUserRepository
     {
         public Task<User?> GetByIdAsync(string id, CancellationToken ct) =>

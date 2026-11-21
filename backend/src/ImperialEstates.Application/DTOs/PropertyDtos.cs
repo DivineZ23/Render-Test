@@ -79,6 +79,8 @@ public sealed record PropertyBookingGroupDto(
 
 public sealed record BookingAnnouncementSummaryDto(long PendingCount);
 
+public sealed record PropertyBookingSummaryDto(int BookingCount, decimal? HighestRent);
+
 public sealed record BookingAnnouncementStateDto(
     string PropertyId, bool IsPending, DateTime? CreatedAt, DateTime? PostedAt,
     string? PostedByDisplayName);
